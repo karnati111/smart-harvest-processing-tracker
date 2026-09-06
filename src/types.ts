@@ -98,6 +98,11 @@ export interface ProductionBatch {
   schedule: string;
   scheduleModelUsed?: string;
   progressReadings: ProgressReading[];
+  driedOutputQuantity?: number;
+  driedOutputUnit?: string;
+  yieldPercentage?: number;
+  packagedAt?: any;
+  statusNotes?: string;
   readyAt?: any;
   createdAt?: any;
   updatedAt?: any;

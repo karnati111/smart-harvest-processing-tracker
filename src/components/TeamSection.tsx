@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User } from 'firebase/auth';
 import { FarmMember, FarmInvite, PermissionTier } from '../types';
-import { getFarmMembers, getFarmInvites, createInvite } from '../lib/farmService';
+import { getFarmMembers, getFarmInvites, sendTeamInvite, SendInviteResult } from '../lib/farmService';
 import {
   Users,
   UserPlus,
@@ -15,15 +15,19 @@ import {
   ShieldAlert,
   BellRing,
   Send,
+  Copy,
+  ExternalLink,
+  Share2,
 } from 'lucide-react';
 
 interface TeamSectionProps {
   farmId: string;
   user: User;
   member: FarmMember;
+  farmName?: string;
 }
 
-export const TeamSection: React.FC<TeamSectionProps> = ({ farmId, user, member }) => {
+export const TeamSection: React.FC<TeamSectionProps> = ({ farmId, user, member, farmName = 'Smart Harvest Facility' }) => {
   const [members, setMembers] = useState<FarmMember[]>([]);
   const [invites, setInvites] = useState<FarmInvite[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +43,9 @@ export const TeamSection: React.FC<TeamSectionProps> = ({ farmId, user, member }
   const [permissionTier, setPermissionTier] = useState<PermissionTier>('worker');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [lastInviteResult, setLastInviteResult] = useState<SendInviteResult | null>(null);
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [copiedInviteId, setCopiedInviteId] = useState<string | null>(null);
 
   const isAdmin = member.permissionTier === 'admin';
 
@@ -118,6 +125,7 @@ export const TeamSection: React.FC<TeamSectionProps> = ({ farmId, user, member }
     e.preventDefault();
     if (!isAdmin) return;
     setFeedback(null);
+    setLastInviteResult(null);
 
     const email = inviteeEmail.trim().toLowerCase();
     if (!email || !email.includes('@')) {
@@ -127,10 +135,20 @@ export const TeamSection: React.FC<TeamSectionProps> = ({ farmId, user, member }
 
     setIsSubmitting(true);
     try {
-      await createInvite(farmId, email, roleLabel, permissionTier, user.uid);
+      const result = await sendTeamInvite({
+        farmId,
+        adminUid: user.uid,
+        inviteeEmail: email,
+        roleLabel,
+        permissionTier,
+        farmName,
+      });
+      setLastInviteResult(result);
       setFeedback({
         type: 'success',
-        message: `Invitation issued for ${email} as ${roleLabel} (${permissionTier}). Next time they sign in with Google using that email, their role will be automatically granted.`,
+        message: result.emailSent
+          ? `Invitation email successfully dispatched to ${email} for role ${roleLabel} (${permissionTier.toUpperCase()})!`
+          : `Invitation registered for ${email}. Click "Send via Gmail" below to dispatch immediately from your Google account.`,
       });
       setInviteeEmail('');
       loadTeamData();
@@ -190,6 +208,82 @@ export const TeamSection: React.FC<TeamSectionProps> = ({ farmId, user, member }
                 <AlertCircle className="w-4 h-4 shrink-0" />
               )}
               <span>{feedback.message}</span>
+            </div>
+          )}
+
+          {/* Direct Gmail & Link Action Hub */}
+          {lastInviteResult && (
+            <div className="p-4 rounded-xl bg-slate-900 text-white border border-emerald-500/40 shadow-md space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center space-x-2">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                    <Mail className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="font-bold text-sm text-white">
+                      Invitation for {lastInviteResult.inviteeEmail}
+                    </h4>
+                    <p className="text-[11px] text-slate-300">
+                      Assigned Role: <span className="text-emerald-400 font-semibold">{lastInviteResult.roleLabel}</span> ({lastInviteResult.permissionTier})
+                    </p>
+                  </div>
+                </div>
+                {lastInviteResult.emailSent ? (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    Dispatched via SMTP
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    Ready to Send via Gmail
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-800">
+                {/* 1-Click Gmail Button */}
+                <a
+                  href={lastInviteResult.gmailWebUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3.5 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-semibold shadow flex items-center space-x-1.5 transition"
+                >
+                  <Mail className="w-3.5 h-3.5" />
+                  <span>Send via Gmail (1-Click)</span>
+                  <ExternalLink className="w-3 h-3 ml-0.5 opacity-80" />
+                </a>
+
+                {/* Default Mail client */}
+                <a
+                  href={lastInviteResult.mailtoUrl}
+                  className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center space-x-1.5 transition"
+                >
+                  <Share2 className="w-3.5 h-3.5 text-slate-400" />
+                  <span>Default Mail App</span>
+                </a>
+
+                {/* Copy Invite Link */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(lastInviteResult.joinUrl);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 3000);
+                  }}
+                  className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium border border-slate-700 flex items-center space-x-1.5 transition"
+                >
+                  {copiedLink ? (
+                    <>
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400">Link Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 text-slate-400" />
+                      <span>Copy Sign-In Link</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           )}
 
@@ -455,22 +549,65 @@ export const TeamSection: React.FC<TeamSectionProps> = ({ farmId, user, member }
           </div>
 
           <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-            {invites.map((inv) => (
-              <div
-                key={inv.email}
-                className="px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
-              >
-                <div>
-                  <span className="font-semibold text-slate-900 dark:text-white">{inv.email}</span>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    Assigned: <strong className="text-slate-700 dark:text-slate-300">{inv.roleLabel}</strong> ({inv.permissionTier})
-                  </p>
+            {invites.map((inv) => {
+              const inviteLink = `${window.location.origin}?invite=${encodeURIComponent(inv.email)}&farm=${farmId}`;
+              const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(inv.email)}&su=${encodeURIComponent(`Invitation to join ${farmName} as ${inv.roleLabel}`)}&body=${encodeURIComponent(`Hello,\n\nYou have been invited to join ${farmName} with the role of ${inv.roleLabel} (${inv.permissionTier.toUpperCase()}).\n\nPlease click the link below to accept and sign in with your Google account (${inv.email}):\n${inviteLink}\n\nBest regards,\n${farmName} Administration`)}`;
+
+              return (
+                <div
+                  key={inv.email}
+                  className="px-5 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5"
+                >
+                  <div>
+                    <span className="font-semibold text-slate-900 dark:text-white">{inv.email}</span>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Assigned: <strong className="text-slate-700 dark:text-slate-300">{inv.roleLabel}</strong> ({inv.permissionTier.toUpperCase()})
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+                    <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800">
+                      Pending
+                    </span>
+
+                    {/* Direct 1-Click Gmail Button */}
+                    <a
+                      href={gmailUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-2.5 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold shadow-xs flex items-center space-x-1 transition"
+                    >
+                      <Mail className="w-3 h-3" />
+                      <span>Send via Gmail</span>
+                      <ExternalLink className="w-2.5 h-2.5 opacity-80" />
+                    </a>
+
+                    {/* Copy Link */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard.writeText(inviteLink);
+                        setCopiedInviteId(inv.email);
+                        setTimeout(() => setCopiedInviteId(null), 2500);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-medium border border-slate-300 dark:border-slate-700 flex items-center space-x-1 transition"
+                    >
+                      {copiedInviteId === inv.email ? (
+                        <>
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                          <span className="text-emerald-500">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3 h-3 text-slate-400" />
+                          <span>Copy Link</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
-                <span className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800 self-start sm:self-auto">
-                  Awaiting Google Sign-In
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

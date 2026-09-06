@@ -14,6 +14,7 @@ import {
   collectionGroup,
 } from 'firebase/firestore';
 import { db, auth } from './firebase';
+import { cleanUnit } from './unitUtils';
 import {
   Farm,
   FarmMember,
@@ -466,6 +467,99 @@ export async function createInvite(
   }
 }
 
+export interface SendInviteResult {
+  success: boolean;
+  emailSent: boolean;
+  transportInfo?: string;
+  joinUrl: string;
+  gmailWebUrl: string;
+  mailtoUrl: string;
+  inviteeEmail: string;
+  roleLabel: string;
+  permissionTier: PermissionTier;
+  emailSubject?: string;
+  plainTextBody?: string;
+}
+
+// Send Email & Gmail Invitation (Server-Side Role Checked)
+export async function sendTeamInvite(params: {
+  farmId: string;
+  adminUid: string;
+  inviteeEmail: string;
+  roleLabel: string;
+  permissionTier: PermissionTier;
+  farmName?: string;
+}): Promise<SendInviteResult> {
+  const normalizedEmail = params.inviteeEmail.trim().toLowerCase();
+  const token = await auth.currentUser?.getIdToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const res = await fetch('/api/invites/send-email', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      farmId: params.farmId,
+      adminUid: params.adminUid,
+      inviteeEmail: normalizedEmail,
+      roleLabel: params.roleLabel,
+      permissionTier: params.permissionTier,
+      farmName: params.farmName,
+      appUrl: window.location.origin,
+    }),
+  });
+
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => ({}));
+    throw new Error(errJson.error || `Failed to issue invitation: HTTP ${res.status}`);
+  }
+
+  return await res.json();
+}
+
+// Server-Side Role-Gated Admin Dashboard API Types & Client
+export interface AdminDashboardData {
+  authorized: boolean;
+  farmId: string;
+  aggregates: {
+    totalBatches: number;
+    readyBatchesCount: number;
+    totalReadyQuantity: number;
+    processingBatchesCount: number;
+    totalProcessingQuantity: number;
+    packagedBatchesCount: number;
+    totalPackagedQuantity: number;
+    harvestedBatchesCount: number;
+    readyByProduct: Array<{
+      productName: string;
+      quantity: number;
+      unit: string;
+      batchCount: number;
+    }>;
+  };
+  batches: ProductionBatch[];
+  members: FarmMember[];
+}
+
+// Fetch Admin Dashboard data with server-side role gate
+export async function getAdminDashboardData(farmId: string, userUid: string): Promise<AdminDashboardData> {
+  const token = await auth.currentUser?.getIdToken();
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(`/api/farms/${farmId}/admin-dashboard?uid=${encodeURIComponent(userUid)}`, {
+    headers,
+  });
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => ({}));
+    throw new Error(errJson.error || `Failed to fetch admin dashboard: HTTP ${res.status}`);
+  }
+  return await res.json();
+}
+
 // Fetch team members for a farm
 export async function getFarmMembers(farmId: string): Promise<FarmMember[]> {
   try {
@@ -514,10 +608,11 @@ export async function addProduct(
   userUid: string
 ): Promise<ProductCatalogItem> {
   try {
+    const sanitizedUnit = cleanUnit(unit);
     const colRef = collection(db, 'farms', farmId, 'products');
     const docRef = await addDoc(colRef, {
       name: name.trim(),
-      unit: unit.trim(),
+      unit: sanitizedUnit,
       processingType: processingType.trim(),
       createdByUid: userUid,
       createdAt: serverTimestamp(),
@@ -525,7 +620,7 @@ export async function addProduct(
     return {
       id: docRef.id,
       name: name.trim(),
-      unit: unit.trim(),
+      unit: sanitizedUnit,
       processingType: processingType.trim(),
       createdByUid: userUid,
     };
@@ -534,17 +629,68 @@ export async function addProduct(
   }
 }
 
-// Raw Material Intake Logs
-export async function getHarvestLogs(farmId: string): Promise<HarvestLog[]> {
+export async function updateProduct(
+  farmId: string,
+  productId: string,
+  data: {
+    name?: string;
+    unit?: string;
+    processingType?: string;
+  }
+): Promise<ProductCatalogItem> {
   try {
-    const q = query(collection(db, 'farms', farmId, 'harvestLogs'), orderBy('harvestedAt', 'desc'));
+    const docRef = doc(db, 'farms', farmId, 'products', productId);
+    const existingSnap = await getDoc(docRef);
+    const existingData = existingSnap.exists() ? existingSnap.data() : {};
+    const updatePayload: any = {};
+    if (data.name !== undefined) updatePayload.name = data.name.trim();
+    if (data.unit !== undefined) updatePayload.unit = cleanUnit(data.unit);
+    if (data.processingType !== undefined) updatePayload.processingType = data.processingType.trim();
+    await updateDoc(docRef, updatePayload);
+    return {
+      id: productId,
+      name: updatePayload.name ?? existingData.name ?? '',
+      unit: updatePayload.unit ?? existingData.unit ?? 'kg',
+      processingType: updatePayload.processingType ?? existingData.processingType ?? '',
+      createdByUid: existingData.createdByUid,
+      createdAt: existingData.createdAt,
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `farms/${farmId}/products/${productId}`);
+  }
+}
+
+// Raw Material Intake Logs (Strictly filtered by userUid for Workers)
+export async function getHarvestLogs(
+  farmId: string,
+  userUid?: string,
+  permissionTier?: PermissionTier
+): Promise<HarvestLog[]> {
+  try {
+    let q;
+    if (permissionTier === 'worker' && userUid) {
+      q = query(
+        collection(db, 'farms', farmId, 'harvestLogs'),
+        where('loggedByUid', '==', userUid)
+      );
+    } else {
+      q = query(collection(db, 'farms', farmId, 'harvestLogs'), orderBy('harvestedAt', 'desc'));
+    }
     const snap = await getDocs(q);
-    return snap.docs.map((doc) => ({
+    const logs = snap.docs.map((doc) => ({
       id: doc.id,
       ...(doc.data() as any),
-    }));
+    })) as HarvestLog[];
+
+    // Sort client-side by harvestedAt desc to avoid composite index requirements
+    return logs.sort((a, b) => {
+      const timeA = a.harvestedAt?.seconds ? a.harvestedAt.seconds * 1000 : new Date(a.harvestedAt || 0).getTime();
+      const timeB = b.harvestedAt?.seconds ? b.harvestedAt.seconds * 1000 : new Date(b.harvestedAt || 0).getTime();
+      return timeB - timeA;
+    });
   } catch (err) {
     handleFirestoreError(err, OperationType.LIST, `farms/${farmId}/harvestLogs`);
+    return [];
   }
 }
 
@@ -565,11 +711,47 @@ export async function addHarvestLog(
     const colRef = collection(db, 'farms', farmId, 'harvestLogs');
     const docRef = await addDoc(colRef, {
       ...data,
+      unit: cleanUnit(data.unit),
       harvestedAt: serverTimestamp(),
     });
     return docRef.id;
   } catch (err) {
     handleFirestoreError(err, OperationType.CREATE, `farms/${farmId}/harvestLogs`);
+  }
+}
+
+export async function updateHarvestLog(
+  farmId: string,
+  logId: string,
+  data: {
+    quantity?: number;
+    unit?: string;
+    notes?: string;
+  }
+): Promise<HarvestLog> {
+  try {
+    const docRef = doc(db, 'farms', farmId, 'harvestLogs', logId);
+    const existingSnap = await getDoc(docRef);
+    const existingData = existingSnap.exists() ? existingSnap.data() : {};
+    const updatePayload: any = {};
+    if (data.quantity !== undefined) updatePayload.quantity = Number(data.quantity);
+    if (data.unit !== undefined) updatePayload.unit = cleanUnit(data.unit);
+    if (data.notes !== undefined) updatePayload.notes = data.notes.trim();
+    await updateDoc(docRef, updatePayload);
+    return {
+      id: logId,
+      productId: existingData.productId || '',
+      productName: existingData.productName || '',
+      quantity: updatePayload.quantity ?? existingData.quantity ?? 0,
+      unit: updatePayload.unit ?? existingData.unit ?? 'kg',
+      notes: updatePayload.notes ?? existingData.notes,
+      loggedByUid: existingData.loggedByUid || '',
+      loggedByName: existingData.loggedByName || '',
+      loggedByRole: existingData.loggedByRole || '',
+      harvestedAt: existingData.harvestedAt,
+    };
+  } catch (err) {
+    handleFirestoreError(err, OperationType.UPDATE, `farms/${farmId}/harvestLogs/${logId}`);
   }
 }
 
@@ -710,24 +892,87 @@ export async function addProgressReading(
   }
 }
 
-// Update batch status (Workers can not set to ready or packaged)
+export interface UpdateBatchStatusOptions {
+  notes?: string;
+  driedOutputQuantity?: number;
+  driedOutputUnit?: string;
+}
+
+// Update batch status (Enforces Admin role checks server-side for Ready and Packaged)
 export async function updateBatchStatus(
   farmId: string,
   batchId: string,
-  newStatus: ProductionBatch['status']
-): Promise<void> {
+  newStatus: ProductionBatch['status'],
+  userUid?: string,
+  optionsOrNotes?: string | UpdateBatchStatusOptions
+): Promise<{
+  success: boolean;
+  notifiedSlack?: boolean;
+  driedOutputQuantity?: number;
+  driedOutputUnit?: string;
+  yieldPercentage?: number;
+}> {
+  const options: UpdateBatchStatusOptions =
+    typeof optionsOrNotes === 'string'
+      ? { notes: optionsOrNotes }
+      : (optionsOrNotes || {});
+
+  // If advancing to ready or packaged, enforce through authoritative server-side endpoint
+  if (newStatus === 'ready' || newStatus === 'packaged') {
+    const token = await auth.currentUser?.getIdToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+    const res = await fetch(`/api/batches/${batchId}/status`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        farmId,
+        uid: userUid || auth.currentUser?.uid,
+        status: newStatus,
+        notes: options.notes || '',
+        driedOutputQuantity: options.driedOutputQuantity,
+        driedOutputUnit: options.driedOutputUnit,
+      }),
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || `Failed to update status to ${newStatus}: HTTP ${res.status}`);
+    }
+
+    const data = await res.json();
+    return {
+      success: true,
+      notifiedSlack: data.notifiedSlack,
+      driedOutputQuantity: data.driedOutputQuantity,
+      driedOutputUnit: data.driedOutputUnit,
+      yieldPercentage: data.yieldPercentage,
+    };
+  }
+
+  // Standard update for intermediate progress stages
   try {
     const batchRef = doc(db, 'farms', farmId, 'batches', batchId);
     const updateData: any = {
       status: newStatus,
       updatedAt: serverTimestamp(),
     };
-    if (newStatus === 'ready') {
-      updateData.readyAt = serverTimestamp();
+    if (options.notes) {
+      updateData.statusNotes = options.notes;
+    }
+    if (options.driedOutputQuantity !== undefined) {
+      updateData.driedOutputQuantity = options.driedOutputQuantity;
+    }
+    if (options.driedOutputUnit) {
+      updateData.driedOutputUnit = options.driedOutputUnit;
     }
     await updateDoc(batchRef, updateData);
+    return { success: true, notifiedSlack: false };
   } catch (err) {
     handleFirestoreError(err, OperationType.UPDATE, `farms/${farmId}/batches/${batchId}`);
+    return { success: false, notifiedSlack: false };
   }
 }
 

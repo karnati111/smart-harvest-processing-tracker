@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ProductCatalogItem, FarmMember } from '../types';
-import { addProduct } from '../lib/farmService';
+import { addProduct, updateProduct } from '../lib/farmService';
+import { cleanUnit, formatUnitDisplay } from '../lib/unitUtils';
 import {
   PackagePlus,
   Boxes,
@@ -13,6 +14,7 @@ import {
   CheckCircle2,
   AlertCircle,
   Plus,
+  Pencil,
 } from 'lucide-react';
 
 interface CatalogSectionProps {
@@ -20,6 +22,7 @@ interface CatalogSectionProps {
   member: FarmMember;
   products: ProductCatalogItem[];
   onProductAdded: (newProd: ProductCatalogItem) => void;
+  onProductUpdated?: (updatedProd: ProductCatalogItem) => void;
   onQuickIntake: (product: ProductCatalogItem) => void;
 }
 
@@ -28,17 +31,68 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
   member,
   products,
   onProductAdded,
+  onProductUpdated,
   onQuickIntake,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
 
-  // Form states
+  // Form states (Add)
   const [name, setName] = useState('');
   const [unit, setUnit] = useState('kg');
   const [processingType, setProcessingType] = useState('drying');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Edit Modal states
+  const [editingProduct, setEditingProduct] = useState<ProductCatalogItem | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editUnit, setEditUnit] = useState('kg');
+  const [editProcessingType, setEditProcessingType] = useState('drying');
+  const [isEditing, setIsEditing] = useState(false);
+
+  const startEditProduct = (prod: ProductCatalogItem) => {
+    setEditingProduct(prod);
+    setEditName(prod.name);
+    setEditUnit(cleanUnit(prod.unit));
+    setEditProcessingType(prod.processingType || 'drying');
+    setFeedback(null);
+  };
+
+  const handleUpdateProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingProduct) return;
+    const trimmedName = editName.trim();
+    if (!trimmedName) {
+      setFeedback({ type: 'error', message: 'Product name cannot be empty.' });
+      return;
+    }
+
+    setIsEditing(true);
+    try {
+      const sanitizedUnit = cleanUnit(editUnit) || 'kg';
+      const updated = await updateProduct(farmId, editingProduct.id, {
+        name: trimmedName,
+        unit: sanitizedUnit,
+        processingType: editProcessingType.trim() || 'processing',
+      });
+      if (onProductUpdated) {
+        onProductUpdated(updated);
+      }
+      setFeedback({
+        type: 'success',
+        message: `Updated product "${updated.name}" successfully (Unit: ${formatUnitDisplay(updated.unit)}).`,
+      });
+      setEditingProduct(null);
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: err?.message || 'Failed to update product.',
+      });
+    } finally {
+      setIsEditing(false);
+    }
+  };
 
   const filteredProducts = products.filter((p) => {
     const q = searchTerm.toLowerCase();
@@ -61,17 +115,18 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
 
     setIsSubmitting(true);
     try {
+      const sanitizedUnit = cleanUnit(unit) || 'kg';
       const newProduct = await addProduct(
         farmId,
         trimmedName,
-        unit.trim() || 'kg',
+        sanitizedUnit,
         processingType.trim() || 'processing',
         member.uid
       );
       onProductAdded(newProduct);
       setFeedback({
         type: 'success',
-        message: `Added "${newProduct.name}" to dynamic product catalog.`,
+        message: `Added "${newProduct.name}" to dynamic product catalog (Unit: ${formatUnitDisplay(newProduct.unit)}).`,
       });
       setName('');
       setShowAddForm(false);
@@ -194,7 +249,8 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
                     type="text"
                     placeholder="kg, g, l, pieces"
                     value={unit}
-                    onChange={(e) => setUnit(e.target.value)}
+                    onChange={(e) => setUnit(e.target.value.replace(/[\d\.\,\-]+/g, ''))}
+                    onBlur={() => setUnit(cleanUnit(unit))}
                     className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
                   />
                 </div>
@@ -315,7 +371,7 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
                 <div className="flex items-center space-x-3 mt-3 text-xs text-slate-500 dark:text-slate-400">
                   <span className="flex items-center space-x-1">
                     <Scale className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Unit: <strong className="text-slate-700 dark:text-slate-200">{prod.unit}</strong></span>
+                    <span>Unit: <strong className="text-slate-700 dark:text-slate-200">{formatUnitDisplay(prod.unit)}</strong></span>
                   </span>
                   <span className="flex items-center space-x-1">
                     <Tag className="w-3.5 h-3.5 text-slate-400" />
@@ -325,10 +381,20 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
               </div>
 
               <div className="pt-4 mt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                <span className="text-[11px] text-slate-400">Catalog Spec</span>
                 <button
+                  type="button"
+                  onClick={() => startEditProduct(prod)}
+                  className="px-2.5 py-1 text-xs font-medium text-slate-600 dark:text-slate-300 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition flex items-center space-x-1 border border-slate-200 dark:border-slate-700"
+                  title="Edit product name, unit, or processing type"
+                >
+                  <Pencil className="w-3 h-3" />
+                  <span>Edit</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => onQuickIntake(prod)}
-                  className="px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-lg transition flex items-center space-x-1 border border-emerald-200 dark:border-emerald-900"
+                  className="px-2.5 py-1 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-lg transition flex items-center space-x-1 border border-emerald-200 dark:border-emerald-900 shadow-xs"
                 >
                   <Sparkles className="w-3 h-3" />
                   <span>Log Intake</span>
@@ -336,6 +402,140 @@ export const CatalogSection: React.FC<CatalogSectionProps> = ({
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Edit Product Modal */}
+      {editingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-slate-50 dark:bg-slate-850">
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-950 text-emerald-600 flex items-center justify-center">
+                  <Pencil className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900 dark:text-white">
+                    Edit Catalog Item
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Update product details, correct typos, and standardize units
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingProduct(null)}
+                className="text-slate-400 hover:text-slate-700 dark:hover:text-white text-xs px-2 py-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-800"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateProduct} className="p-6 space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="block font-semibold text-slate-700 dark:text-slate-300">
+                  Product Name *
+                </label>
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
+                  required
+                />
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300">
+                    Standard Measurement Unit *
+                  </label>
+                  <span className="text-[10px] text-slate-400">
+                    Standard unit without numbers (e.g. "kg", not "100kg")
+                  </span>
+                </div>
+                <input
+                  type="text"
+                  value={editUnit}
+                  onChange={(e) => setEditUnit(e.target.value.replace(/[\d\.\,\-]+/g, ''))}
+                  onBlur={() => setEditUnit(cleanUnit(editUnit))}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
+                  placeholder="e.g. kg, g, l, pieces, bundles"
+                  required
+                />
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {commonUnits.map((u) => (
+                    <button
+                      key={u}
+                      type="button"
+                      onClick={() => setEditUnit(u)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium border transition ${
+                        editUnit.toLowerCase() === u
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500'
+                      }`}
+                    >
+                      {u}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block font-semibold text-slate-700 dark:text-slate-300">
+                  Processing Type *
+                </label>
+                <input
+                  type="text"
+                  value={editProcessingType}
+                  onChange={(e) => setEditProcessingType(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500"
+                  required
+                />
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {commonProcessingTypes.map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setEditProcessingType(t)}
+                      className={`px-2 py-0.5 rounded text-[10px] font-medium border transition ${
+                        editProcessingType.toLowerCase() === t
+                          ? 'bg-emerald-600 text-white border-emerald-600'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-emerald-500'
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingProduct(null)}
+                  className="px-3.5 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditing || !editName.trim()}
+                  className="flex items-center space-x-1.5 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold rounded-lg shadow transition"
+                >
+                  {isEditing ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving Changes...</span>
+                    </>
+                  ) : (
+                    <span>Save Changes</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

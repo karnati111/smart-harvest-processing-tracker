@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { User } from 'firebase/auth';
 import { ProductCatalogItem, HarvestLog, FarmMember, ProductionBatch } from '../types';
-import { addHarvestLog, addProduct } from '../lib/farmService';
+import { addHarvestLog, addProduct, updateHarvestLog } from '../lib/farmService';
+import { cleanUnit, formatUnitDisplay, formatQuantityWithUnit } from '../lib/unitUtils';
 import {
   ClipboardList,
   PlusCircle,
@@ -17,6 +18,7 @@ import {
   PackageCheck,
   Scale,
   Boxes,
+  Pencil,
 } from 'lucide-react';
 
 interface IntakeSectionProps {
@@ -27,11 +29,12 @@ interface IntakeSectionProps {
   harvestLogs: HarvestLog[];
   batches?: ProductionBatch[];
   onLogAdded: (newLog: HarvestLog) => void;
+  onLogUpdated?: (updatedLog: HarvestLog) => void;
   onProductAdded: (newProd: ProductCatalogItem) => void;
   onStartBatchWithLogs: (selectedLogs: HarvestLog[], product: ProductCatalogItem) => void;
   preselectedProduct?: ProductCatalogItem | null;
   onSelectBatch?: (batchId: string) => void;
-  onNavigateTab?: (tab: 'intake' | 'batches' | 'catalog' | 'history' | 'team') => void;
+  onNavigateTab?: (tab: 'dashboard' | 'intake' | 'batches' | 'catalog' | 'history' | 'team') => void;
 }
 
 export const IntakeSection: React.FC<IntakeSectionProps> = ({
@@ -42,6 +45,7 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
   harvestLogs,
   batches = [],
   onLogAdded,
+  onLogUpdated,
   onProductAdded,
   onStartBatchWithLogs,
   preselectedProduct,
@@ -71,6 +75,55 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
 
   // Selection for batch creation
   const [selectedLogIds, setSelectedLogIds] = useState<string[]>([]);
+
+  // Edit Intake Log state
+  const [editingLog, setEditingLog] = useState<HarvestLog | null>(null);
+  const [editQuantity, setEditQuantity] = useState<string>('');
+  const [editUnit, setEditUnit] = useState<string>('kg');
+  const [editNotes, setEditNotes] = useState<string>('');
+  const [isEditingLog, setIsEditingLog] = useState(false);
+
+  const startEditLog = (log: HarvestLog) => {
+    setEditingLog(log);
+    setEditQuantity(String(log.quantity));
+    setEditUnit(cleanUnit(log.unit));
+    setEditNotes(log.notes || '');
+    setFeedback(null);
+  };
+
+  const handleUpdateLog = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLog) return;
+    const num = parseFloat(editQuantity);
+    if (isNaN(num) || num <= 0) {
+      setFeedback({ type: 'error', message: 'Please enter a valid positive quantity.' });
+      return;
+    }
+    setIsEditingLog(true);
+    try {
+      const sanitizedUnit = cleanUnit(editUnit) || 'kg';
+      const updated = await updateHarvestLog(farmId, editingLog.id, {
+        quantity: num,
+        unit: sanitizedUnit,
+        notes: editNotes.trim(),
+      });
+      if (onLogUpdated) {
+        onLogUpdated(updated);
+      }
+      setFeedback({
+        type: 'success',
+        message: `Updated intake record for ${updated.productName}: ${updated.quantity} ${formatUnitDisplay(updated.unit)}.`,
+      });
+      setEditingLog(null);
+    } catch (err: any) {
+      setFeedback({
+        type: 'error',
+        message: err?.message || 'Failed to update intake entry.',
+      });
+    } finally {
+      setIsEditingLog(false);
+    }
+  };
 
   const selectedProduct = products.find((p) => p.id === selectedProductId);
 
@@ -118,10 +171,11 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
     e.preventDefault();
     if (!newProductName.trim()) return;
     try {
+      const sanitizedUnit = cleanUnit(newProductUnit.trim()) || 'kg';
       const created = await addProduct(
         farmId,
         newProductName.trim(),
-        newProductUnit.trim() || 'kg',
+        sanitizedUnit,
         newProductProcess.trim() || 'processing',
         user.uid
       );
@@ -131,7 +185,7 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
       setNewProductName('');
       setFeedback({
         type: 'success',
-        message: `Created product "${created.name}" and selected for intake.`,
+        message: `Created product "${created.name}" and selected for intake (Unit: ${formatUnitDisplay(created.unit)}).`,
       });
     } catch (err: any) {
       setFeedback({ type: 'error', message: err?.message || 'Failed to create inline product.' });
@@ -155,11 +209,12 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
 
     setIsSubmitting(true);
     try {
+      const sanitizedUnit = cleanUnit(selectedProduct.unit) || 'kg';
       const logData = {
         productId: selectedProduct.id,
         productName: selectedProduct.name,
         quantity: numQty,
-        unit: selectedProduct.unit,
+        unit: sanitizedUnit,
         notes: notes.trim(),
         loggedByUid: user.uid,
         loggedByName: user.displayName || user.email || 'Team Member',
@@ -176,7 +231,7 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
       onLogAdded(newLog);
       setFeedback({
         type: 'success',
-        message: `Logged ${numQty} ${selectedProduct.unit} of ${selectedProduct.name} successfully.`,
+        message: `Logged ${numQty} ${formatUnitDisplay(sanitizedUnit)} of ${selectedProduct.name} successfully.`,
       });
       setNotes('');
       setShowLogForm(false);
@@ -360,7 +415,7 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
               {/* Quantity */}
               <div className="space-y-1">
                 <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Quantity ({selectedProduct?.unit || 'units'})
+                  Quantity ({formatUnitDisplay(selectedProduct?.unit || 'units')})
                 </label>
                 <div className="relative">
                   <input
@@ -370,10 +425,10 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
                     placeholder="e.g. 100"
                     value={quantity}
                     onChange={(e) => setQuantity(e.target.value)}
-                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none pr-12"
+                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none pr-14"
                   />
                   <span className="absolute right-3 top-2 text-xs text-slate-400 uppercase font-mono">
-                    {selectedProduct?.unit || 'kg'}
+                    {formatUnitDisplay(selectedProduct?.unit || 'kg')}
                   </span>
                 </div>
               </div>
@@ -411,7 +466,8 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
                     type="text"
                     placeholder="Unit (e.g. kg)"
                     value={newProductUnit}
-                    onChange={(e) => setNewProductUnit(e.target.value)}
+                    onChange={(e) => setNewProductUnit(e.target.value.replace(/[\d\.\,\-]+/g, ''))}
+                    onBlur={() => setNewProductUnit(cleanUnit(newProductUnit))}
                     className="px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white"
                   />
                   <input
@@ -592,22 +648,22 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
                           {/* Stock Status Badge */}
                           {analysis.isFresh ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                              100% In Stock ({log.quantity} {log.unit} available)
+                              100% In Stock ({log.quantity} {formatUnitDisplay(log.unit)} available)
                             </span>
                           ) : analysis.isPartiallyAllocated ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                              Partially Allocated ({analysis.totalAllocated} {log.unit} in batch • {analysis.remainingQuantity} {log.unit} available)
+                              Partially Allocated ({analysis.totalAllocated} {formatUnitDisplay(log.unit)} in batch • {analysis.remainingQuantity} {formatUnitDisplay(log.unit)} available)
                             </span>
                           ) : (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700">
-                              Fully Allocated ({log.quantity} {log.unit} in batch runs)
+                              Fully Allocated ({log.quantity} {formatUnitDisplay(log.unit)} in batch runs)
                             </span>
                           )}
 
                           {/* Linked Production Batches with LIVE Status */}
                           {analysis.linkedBatches.map((batch) => {
                             const qtyAllocated = batch.intakeAllocations?.find((a) => a.harvestLogId === log.id)?.quantityUsed;
-                            const qtyLabel = qtyAllocated !== undefined ? `${qtyAllocated} ${log.unit}` : `${batch.totalQuantity} ${batch.unit}`;
+                            const qtyLabel = qtyAllocated !== undefined ? `${qtyAllocated} ${formatUnitDisplay(log.unit)}` : `${batch.totalQuantity} ${formatUnitDisplay(batch.unit)}`;
 
                             if (batch.status === 'ready') {
                               return (
@@ -671,7 +727,7 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
                             {analysis.remainingQuantity.toLocaleString()}
                           </span>
                           <span className="text-[11px] text-slate-500">
-                            / {log.quantity.toLocaleString()} {log.unit} left
+                            / {log.quantity.toLocaleString()} {formatUnitDisplay(log.unit)} left
                           </span>
                         </div>
 
@@ -685,7 +741,7 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5 font-mono">
                           {analysis.totalAllocated > 0
-                            ? `${analysis.totalAllocated.toLocaleString()} ${log.unit} in batch runs`
+                            ? `${analysis.totalAllocated.toLocaleString()} ${formatUnitDisplay(log.unit)} in batch runs`
                             : 'No batches drawn yet'}
                         </div>
                       </td>
@@ -711,8 +767,8 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
 
                       {/* Dynamic Lifecycle Actions Column */}
                       <td className="p-3 text-right whitespace-nowrap">
-                        {analysis.remainingQuantity > 0 ? (
-                          <div className="flex flex-col items-end space-y-1">
+                        <div className="flex flex-col items-end space-y-1.5">
+                          {analysis.remainingQuantity > 0 ? (
                             <button
                               onClick={() => {
                                 const prod = products.find((p) => p.id === log.productId) || {
@@ -728,10 +784,23 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
                             >
                               <span>
                                 {analysis.isPartiallyAllocated
-                                  ? `+ Draw Batch (${analysis.remainingQuantity} ${log.unit} left)`
-                                  : `+ Start Batch (${log.quantity} ${log.unit})`}
+                                  ? `+ Draw Batch (${analysis.remainingQuantity} ${formatUnitDisplay(log.unit)} left)`
+                                  : `+ Start Batch (${log.quantity} ${formatUnitDisplay(log.unit)})`}
                               </span>
                               <ArrowRight className="w-3 h-3" />
+                            </button>
+                          ) : null}
+
+                          <div className="flex items-center space-x-1.5">
+                            {/* Edit Intake Entry Button */}
+                            <button
+                              type="button"
+                              onClick={() => startEditLog(log)}
+                              className="p-1 text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded transition inline-flex items-center space-x-1 text-[11px]"
+                              title="Edit intake quantity, unit, or notes to correct any errors"
+                            >
+                              <Pencil className="w-3 h-3" />
+                              <span>Edit</span>
                             </button>
 
                             {/* Secondary link to active batch if exists */}
@@ -759,58 +828,123 @@ export const IntakeSection: React.FC<IntakeSectionProps> = ({
                                 <Loader2 className="w-2.5 h-2.5 animate-spin" />
                                 <span>Batch #{analysis.processingBatches[0].id.slice(-6)} Processing</span>
                               </button>
-                            ) : null}
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-end space-y-1">
-                            {analysis.readyBatches.length > 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (onSelectBatch) onSelectBatch(analysis.readyBatches[0].id);
-                                  else if (onNavigateTab) onNavigateTab('batches');
-                                }}
-                                className="px-3 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow-sm transition inline-flex items-center space-x-1.5"
-                              >
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                <span>Ready for Distribution (View Batch #{analysis.readyBatches[0].id.slice(-6)})</span>
-                              </button>
-                            ) : analysis.processingBatches.length > 0 ? (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  if (onSelectBatch) onSelectBatch(analysis.processingBatches[0].id);
-                                  else if (onNavigateTab) onNavigateTab('batches');
-                                }}
-                                className="px-3 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 rounded-lg border border-blue-200 dark:border-blue-800 transition inline-flex items-center space-x-1.5"
-                              >
-                                <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                                <span>In Processing (View Batch #{analysis.processingBatches[0].id.slice(-6)})</span>
-                              </button>
                             ) : analysis.packagedBatches.length > 0 ? (
                               <button
                                 type="button"
                                 onClick={() => {
                                   if (onNavigateTab) onNavigateTab('history');
                                 }}
-                                className="px-3 py-1.5 text-xs font-medium text-purple-700 dark:text-purple-300 bg-purple-50 dark:bg-purple-950/60 hover:bg-purple-100 rounded-lg border border-purple-200 dark:border-purple-800 transition inline-flex items-center space-x-1.5"
+                                className="text-[10px] font-medium text-purple-600 dark:text-purple-400 hover:underline flex items-center space-x-1"
                               >
-                                <PackageCheck className="w-3.5 h-3.5 text-purple-600" />
-                                <span>Packaged &amp; Shipped</span>
+                                <PackageCheck className="w-2.5 h-2.5" />
+                                <span>Batch #{analysis.packagedBatches[0].id.slice(-6)} Packaged</span>
                               </button>
-                            ) : (
-                              <span className="text-[11px] text-slate-400 font-medium px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded">
+                            ) : analysis.remainingQuantity <= 0 ? (
+                              <span className="text-[10px] text-slate-400 font-medium px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded">
                                 Fully Allocated
                               </span>
-                            )}
+                            ) : null}
                           </div>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Intake Log Modal */}
+      {editingLog && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center space-x-2">
+                <Pencil className="w-4 h-4 text-emerald-500" />
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Edit Intake Record: {editingLog.productName}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingLog(null)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-sm"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateLog} className="space-y-4">
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Quantity
+                </label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="any"
+                    min="0.01"
+                    value={editQuantity}
+                    onChange={(e) => setEditQuantity(e.target.value)}
+                    required
+                    className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none pr-14"
+                  />
+                  <span className="absolute right-3 top-2 text-xs text-slate-400 uppercase font-mono">
+                    {formatUnitDisplay(editUnit)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Unit of Measure
+                </label>
+                <input
+                  type="text"
+                  value={editUnit}
+                  onChange={(e) => setEditUnit(e.target.value)}
+                  placeholder="e.g. kg, g, l, pieces"
+                  required
+                  className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+                <p className="text-[10px] text-slate-400">
+                  Typo protection active: numbers in unit field are automatically cleaned (e.g. "100kg" becomes "kg").
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Notes / Source Batch / Grade
+                </label>
+                <input
+                  type="text"
+                  value={editNotes}
+                  onChange={(e) => setEditNotes(e.target.value)}
+                  placeholder="e.g. Supplier Lot #412"
+                  className="w-full px-3 py-2 text-xs bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setEditingLog(null)}
+                  className="px-3 py-1.5 text-xs text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isEditingLog}
+                  className="px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-500 rounded-lg shadow transition flex items-center space-x-1.5 disabled:opacity-50"
+                >
+                  {isEditingLog ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                  <span>Save Changes</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

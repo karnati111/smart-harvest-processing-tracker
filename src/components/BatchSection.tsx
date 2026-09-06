@@ -12,6 +12,7 @@ import {
   addProgressReading,
   updateBatchStatus,
 } from '../lib/farmService';
+import { formatUnitDisplay, formatQuantityWithUnit } from '../lib/unitUtils';
 import { BatchChatModal } from './BatchChatModal';
 import { BatchReadyModal } from './BatchReadyModal';
 import ReactMarkdown from 'react-markdown';
@@ -706,7 +707,7 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
                               <div>
                                 <div className="font-semibold text-slate-900 dark:text-white flex items-center space-x-1.5">
                                   <span>
-                                    {log.quantity} {log.unit} delivery
+                                    {log.quantity} {formatUnitDisplay(log.unit)} delivery
                                   </span>
                                   <span className="font-normal text-slate-500">
                                     — {log.notes || 'Intake delivery'}
@@ -728,11 +729,11 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
                                 </span>
                               ) : maxAvailable < log.quantity ? (
                                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-semibold border border-amber-300 dark:border-amber-800">
-                                  {maxAvailable} {log.unit} remaining in stock
+                                  {maxAvailable} {formatUnitDisplay(log.unit)} remaining in stock
                                 </span>
                               ) : (
                                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-medium">
-                                  Full {log.quantity} {log.unit} available
+                                  Full {log.quantity} {formatUnitDisplay(log.unit)} available
                                 </span>
                               )}
                             </div>
@@ -743,10 +744,10 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
                             <div className="mt-2.5 pt-2 border-t border-emerald-200 dark:border-emerald-800/60 pl-6 space-y-1.5">
                               <div className="flex flex-wrap items-center justify-between gap-1">
                                 <label className="text-[11px] font-semibold text-slate-800 dark:text-slate-200">
-                                  Draw quantity for this batch ({log.unit}):
+                                  Draw quantity for this batch ({formatUnitDisplay(log.unit)}):
                                 </label>
                                 <span className="text-[10px] text-slate-500">
-                                  Max available: <strong>{maxAvailable} {log.unit}</strong>
+                                  Max available: <strong>{maxAvailable} {formatUnitDisplay(log.unit)}</strong>
                                 </span>
                               </div>
 
@@ -770,10 +771,10 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
                                   className="w-28 px-2.5 py-1 text-xs bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-slate-900 dark:text-white font-bold focus:ring-2 focus:ring-emerald-500"
                                 />
                                 <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                                  {log.unit}
+                                  {formatUnitDisplay(log.unit)}
                                 </span>
 
-                                {/* Quick selection shortcut buttons */}
+                                {/* Dynamic percentage shortcuts */}
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -782,29 +783,30 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
                                       [log.id]: maxAvailable,
                                     }));
                                   }}
-                                  className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 transition"
+                                  className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/80 hover:bg-emerald-200 text-emerald-800 dark:text-emerald-300 rounded border border-emerald-300 dark:border-emerald-700 transition"
                                 >
-                                  Use All ({maxAvailable})
+                                  100% (All {maxAvailable})
                                 </button>
-                                {maxAvailable >= 1000 && (
+                                {maxAvailable >= 10 && (
                                   <button
                                     type="button"
                                     onClick={() => {
+                                      const threeFourths = Math.round((maxAvailable * 0.75) * 10) / 10;
                                       setLogAllocations((prev) => ({
                                         ...prev,
-                                        [log.id]: 500,
+                                        [log.id]: threeFourths,
                                       }));
                                     }}
-                                    className="px-2 py-0.5 text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950/80 hover:bg-emerald-200 text-emerald-800 dark:text-emerald-300 rounded border border-emerald-300 dark:border-emerald-700 transition"
+                                    className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 transition"
                                   >
-                                    500 {log.unit}
+                                    75% ({Math.round((maxAvailable * 0.75) * 10) / 10})
                                   </button>
                                 )}
-                                {maxAvailable > 100 && (
+                                {maxAvailable >= 4 && (
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      const half = Math.round((maxAvailable / 2) * 10) / 10;
+                                      const half = Math.round((maxAvailable * 0.5) * 10) / 10;
                                       setLogAllocations((prev) => ({
                                         ...prev,
                                         [log.id]: half,
@@ -812,15 +814,30 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
                                     }}
                                     className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 transition"
                                   >
-                                    50% ({Math.round((maxAvailable / 2) * 10) / 10})
+                                    50% ({Math.round((maxAvailable * 0.5) * 10) / 10})
+                                  </button>
+                                )}
+                                {maxAvailable >= 10 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const quarter = Math.round((maxAvailable * 0.25) * 10) / 10;
+                                      setLogAllocations((prev) => ({
+                                        ...prev,
+                                        [log.id]: quarter,
+                                      }));
+                                    }}
+                                    className="px-2 py-0.5 text-[10px] font-medium bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded border border-slate-200 dark:border-slate-700 transition"
+                                  >
+                                    25% ({Math.round((maxAvailable * 0.25) * 10) / 10})
                                   </button>
                                 )}
                               </div>
 
                               <div className="text-[10px] text-slate-500 dark:text-slate-400">
-                                Allocating <strong>{allocatedAmt} {log.unit}</strong> →{' '}
+                                Allocating <strong>{allocatedAmt} {formatUnitDisplay(log.unit)}</strong> →{' '}
                                 <strong className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                                  {remainingAfter} {log.unit}
+                                  {remainingAfter} {formatUnitDisplay(log.unit)}
                                 </strong>{' '}
                                 will remain in intake inventory for future batches
                               </div>
@@ -1337,7 +1354,7 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
             onNavigateTab ? () => onNavigateTab('history') : undefined
           }
           onStartNextBatch={() => {
-            const freshIntakeLogs = harvestLogs.filter((l) => !allocatedHarvestLogIds.has(l.id));
+            const freshIntakeLogs = harvestLogs.filter((l) => !exhaustedHarvestLogIds.has(l.id));
             if (freshIntakeLogs.length > 0) {
               setShowCreateModal(true);
             } else if (onNavigateTab) {

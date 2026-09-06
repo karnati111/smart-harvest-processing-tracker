@@ -110,16 +110,23 @@ service cloud.firestore {
 
       // Raw Material Intake Logs (harvestLogs) subcollection
       match /harvestLogs/{logId} {
-        allow read: if isMember(farmId);
+        // Workers see only their own harvest-logging records; Admins see all logs for the farm
+        allow read: if isMember(farmId) && (
+          isAdmin(farmId) ||
+          resource.data.loggedByUid == request.auth.uid
+        );
         allow create: if isMember(farmId) && request.resource.data.loggedByUid == request.auth.uid;
-        allow update: if isMember(farmId);
+        allow update: if isMember(farmId) && (
+          isAdmin(farmId) ||
+          resource.data.loggedByUid == request.auth.uid
+        );
         allow delete: if isAdmin(farmId);
       }
 
       // Production Batches subcollection
       match /batches/{batchId} {
         allow read: if isMember(farmId);
-        allow create: if isMember(farmId);
+        allow create: if isAdmin(farmId);
 
         // Workers can update progress readings and conditions, but cannot mark status as 'ready' or 'packaged'
         allow update: if isMember(farmId) && (

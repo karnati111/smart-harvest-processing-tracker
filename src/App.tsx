@@ -19,6 +19,7 @@ import { Header } from './components/Header';
 import { LoginScreen } from './components/LoginScreen';
 import { OnboardingModal } from './components/OnboardingModal';
 import { WalkthroughModal } from './components/WalkthroughModal';
+import { DashboardSection } from './components/DashboardSection';
 import { CatalogSection } from './components/CatalogSection';
 import { IntakeSection } from './components/IntakeSection';
 import { BatchSection } from './components/BatchSection';
@@ -26,6 +27,7 @@ import { TeamSection } from './components/TeamSection';
 import { HistorySection } from './components/HistorySection';
 
 import {
+  LayoutDashboard,
   Boxes,
   ClipboardList,
   Layers,
@@ -53,7 +55,7 @@ export default function App() {
   const [isDataRefreshing, setIsDataRefreshing] = useState(false);
 
   // Navigation & Modals
-  const [activeTab, setActiveTab] = useState<'batches' | 'intake' | 'catalog' | 'team' | 'history'>('batches');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'batches' | 'intake' | 'catalog' | 'team' | 'history'>('dashboard');
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [showWalkthroughModal, setShowWalkthroughModal] = useState(false);
 
@@ -62,6 +64,15 @@ export default function App() {
   const [preselectedLogsForBatch, setPreselectedLogsForBatch] = useState<HarvestLog[]>([]);
   const [preselectedProductForBatch, setPreselectedProductForBatch] = useState<ProductCatalogItem | null>(null);
   const [focusedBatchId, setFocusedBatchId] = useState<string | null>(null);
+
+  // Auto-route workers to their dedicated harvest-logging view
+  useEffect(() => {
+    if (activeMember && activeMember.permissionTier === 'worker') {
+      if (activeTab === 'dashboard' || activeTab === 'batches' || activeTab === 'team') {
+        setActiveTab('intake');
+      }
+    }
+  }, [activeMember, activeTab]);
 
   // 1. Listen for Auth State Changes
   useEffect(() => {
@@ -116,12 +127,13 @@ export default function App() {
   };
 
   // 3. Load all operational data for active facility
-  const loadFarmData = useCallback(async (farmId: string) => {
+  const loadFarmData = useCallback(async (farmId: string, currentMember?: FarmMember | null) => {
     setIsDataRefreshing(true);
     try {
+      const memberToUse = currentMember !== undefined ? currentMember : activeMember;
       const [prodsData, logsData, batchesData] = await Promise.all([
         getProducts(farmId),
-        getHarvestLogs(farmId),
+        getHarvestLogs(farmId, memberToUse?.uid, memberToUse?.permissionTier),
         getBatches(farmId),
       ]);
       setProducts(prodsData);
@@ -132,19 +144,19 @@ export default function App() {
     } finally {
       setIsDataRefreshing(false);
     }
-  }, []);
+  }, [activeMember]);
 
   const handleSelectFarm = (farm: Farm, member: FarmMember) => {
     setActiveFarm(farm);
     setActiveMember(member);
-    loadFarmData(farm.id);
+    loadFarmData(farm.id, member);
   };
 
   const handleFarmCreatedOrJoined = (farm: Farm, member: FarmMember) => {
     setAllFarms((prev) => [...prev, { farm, member }]);
     setActiveFarm(farm);
     setActiveMember(member);
-    loadFarmData(farm.id);
+    loadFarmData(farm.id, member);
   };
 
   // Handlers for dynamic data updates
@@ -152,8 +164,26 @@ export default function App() {
     setProducts((prev) => [newProd, ...prev]);
   };
 
+  const handleProductUpdated = (updatedProd: ProductCatalogItem) => {
+    setProducts((prev) =>
+      prev.map((p) => (p.id === updatedProd.id ? updatedProd : p))
+    );
+    if (activeFarm) {
+      loadFarmData(activeFarm.id);
+    }
+  };
+
   const handleLogAdded = (newLog: HarvestLog) => {
     setHarvestLogs((prev) => [newLog, ...prev]);
+  };
+
+  const handleLogUpdated = (updatedLog: HarvestLog) => {
+    setHarvestLogs((prev) =>
+      prev.map((l) => (l.id === updatedLog.id ? updatedLog : l))
+    );
+    if (activeFarm) {
+      loadFarmData(activeFarm.id);
+    }
   };
 
   const handleBatchCreated = (newBatch: ProductionBatch) => {
@@ -186,6 +216,23 @@ export default function App() {
   const handleStartBatchFromLogs = (selectedLogs: HarvestLog[], product: ProductCatalogItem) => {
     setPreselectedLogsForBatch(selectedLogs);
     setPreselectedProductForBatch(product);
+    setActiveTab('batches');
+  };
+
+  const handleDashboardQuickIntake = (product?: ProductCatalogItem) => {
+    if (product) {
+      setPreselectedProductForIntake(product);
+    }
+    setActiveTab('intake');
+  };
+
+  const handleDashboardStartBatchWithProduct = (product: ProductCatalogItem) => {
+    setPreselectedProductForBatch(product);
+    setActiveTab('batches');
+  };
+
+  const handleDashboardSelectBatch = (batchId: string) => {
+    setFocusedBatchId(batchId);
     setActiveTab('batches');
   };
 
@@ -255,70 +302,140 @@ export default function App() {
         ) : (
           <>
             {/* Navigation Tabs */}
-            <div className="flex items-center space-x-1 sm:space-x-2 border-b border-slate-200 dark:border-slate-800 pb-2 overflow-x-auto">
-              <button
-                onClick={() => setActiveTab('batches')}
-                className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
-                  activeTab === 'batches'
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
-                }`}
-              >
-                <Boxes className="w-4 h-4" />
-                <span>Production Batches ({batches.length})</span>
-              </button>
+            {activeMember?.permissionTier === 'admin' ? (
+              <div className="flex items-center space-x-1 sm:space-x-2 border-b border-slate-200 dark:border-slate-800 pb-2 overflow-x-auto">
+                <button
+                  onClick={() => setActiveTab('dashboard')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'dashboard'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <LayoutDashboard className="w-4 h-4" />
+                  <span>Admin Dashboard</span>
+                  <span className="text-[10px] bg-emerald-950/80 text-emerald-200 px-1.5 py-0.5 rounded font-mono font-bold">
+                    ADMIN
+                  </span>
+                </button>
 
-              <button
-                onClick={() => setActiveTab('intake')}
-                className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
-                  activeTab === 'intake'
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
-                }`}
-              >
-                <ClipboardList className="w-4 h-4" />
-                <span>Raw Material Intake ({harvestLogs.length})</span>
-              </button>
+                <button
+                  onClick={() => setActiveTab('batches')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'batches'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <Boxes className="w-4 h-4" />
+                  <span>Production Batches ({batches.length})</span>
+                </button>
 
-              <button
-                onClick={() => setActiveTab('catalog')}
-                className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
-                  activeTab === 'catalog'
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
-                }`}
-              >
-                <Layers className="w-4 h-4" />
-                <span>Product Catalog ({products.length})</span>
-              </button>
+                <button
+                  onClick={() => setActiveTab('intake')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'intake'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <ClipboardList className="w-4 h-4" />
+                  <span>Raw Material Intake ({harvestLogs.length})</span>
+                </button>
 
-              <button
-                onClick={() => setActiveTab('history')}
-                className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
-                  activeTab === 'history'
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
-                }`}
-              >
-                <History className="w-4 h-4" />
-                <span>Operational History</span>
-              </button>
+                <button
+                  onClick={() => setActiveTab('catalog')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'catalog'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <Layers className="w-4 h-4" />
+                  <span>Product Catalog ({products.length})</span>
+                </button>
 
-              <button
-                onClick={() => setActiveTab('team')}
-                className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
-                  activeTab === 'team'
-                    ? 'bg-emerald-600 text-white shadow-md'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
-                }`}
-              >
-                <Users className="w-4 h-4" />
-                <span>Team &amp; Access</span>
-              </button>
-            </div>
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'history'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <History className="w-4 h-4" />
+                  <span>Operational History</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('team')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'team'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Team &amp; Access</span>
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center space-x-1 sm:space-x-2 border-b border-slate-200 dark:border-slate-800 pb-2 overflow-x-auto">
+                <button
+                  onClick={() => setActiveTab('intake')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'intake'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <ClipboardList className="w-4 h-4" />
+                  <span>My Raw Material Intake ({harvestLogs.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('catalog')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'catalog'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <Layers className="w-4 h-4" />
+                  <span>Product Catalog ({products.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('history')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'history'
+                      ? 'bg-emerald-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <History className="w-4 h-4" />
+                  <span>Delivery History</span>
+                </button>
+              </div>
+            )}
 
             {/* Active Tab View */}
             <div>
+              {activeTab === 'dashboard' && (
+                <DashboardSection
+                  farm={activeFarm}
+                  member={activeMember!}
+                  products={products}
+                  harvestLogs={harvestLogs}
+                  batches={batches}
+                  onNavigateTab={setActiveTab}
+                  onQuickIntake={handleDashboardQuickIntake}
+                  onStartBatchWithProduct={handleDashboardStartBatchWithProduct}
+                  onSelectBatch={handleDashboardSelectBatch}
+                  onBatchUpdated={handleBatchUpdated}
+                />
+              )}
+
               {activeTab === 'batches' && (
                 <BatchSection
                   farmId={activeFarm.id}
@@ -351,6 +468,7 @@ export default function App() {
                   harvestLogs={harvestLogs}
                   batches={batches}
                   onLogAdded={handleLogAdded}
+                  onLogUpdated={handleLogUpdated}
                   onProductAdded={handleProductAdded}
                   onStartBatchWithLogs={handleStartBatchFromLogs}
                   preselectedProduct={preselectedProductForIntake}
@@ -365,6 +483,7 @@ export default function App() {
                   member={activeMember!}
                   products={products}
                   onProductAdded={handleProductAdded}
+                  onProductUpdated={handleProductUpdated}
                   onQuickIntake={handleQuickIntakeFromCatalog}
                 />
               )}
