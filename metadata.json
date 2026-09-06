@@ -1,0 +1,6 @@
+{
+  "name": "Smart Harvest & Processing Tracker",
+  "description": "User-authenticated tracking application for small-batch raw material intake, multi-turn AI processing schedules, batch chats, and farm-isolated operations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

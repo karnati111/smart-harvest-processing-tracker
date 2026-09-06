@@ -1,0 +1,166 @@
+{
+  "entities": {
+    "Farm": {
+      "title": "Farm",
+      "description": "A facility or organization undertaking small-batch processing operations.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 100 },
+        "normalizedName": { "type": "string", "maxLength": 100 },
+        "ownerUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "normalizedName", "ownerUid"]
+    },
+    "FarmMember": {
+      "title": "FarmMember",
+      "description": "An authenticated user with an assigned permission tier in a facility.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 254 },
+        "permissionTier": { "type": "string", "enum": ["worker", "admin"] },
+        "roleLabel": { "type": "string", "maxLength": 60 },
+        "joinedAt": { "type": "string" }
+      },
+      "required": ["uid", "permissionTier", "roleLabel"]
+    },
+    "FarmInvite": {
+      "title": "FarmInvite",
+      "description": "An email-gated team invitation pending Google Sign-In.",
+      "type": "object",
+      "properties": {
+        "email": { "type": "string", "maxLength": 254 },
+        "roleLabel": { "type": "string", "maxLength": 60 },
+        "permissionTier": { "type": "string", "enum": ["worker", "admin"] },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["email", "roleLabel", "permissionTier", "createdByUid"]
+    },
+    "FarmNameReservation": {
+      "title": "FarmNameReservation",
+      "description": "Unique reservation for facility display names to prevent naming collisions.",
+      "type": "object",
+      "properties": {
+        "originalName": { "type": "string", "maxLength": 100 },
+        "normalizedName": { "type": "string", "maxLength": 100 },
+        "reservedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["originalName", "normalizedName", "reservedByUid"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "A dynamic catalog item produced or processed in a facility.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "maxLength": 120 },
+        "unit": { "type": "string", "maxLength": 30 },
+        "processingType": { "type": "string", "maxLength": 60 },
+        "createdByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["name", "unit", "processingType", "createdByUid"]
+    },
+    "HarvestLog": {
+      "title": "HarvestLog",
+      "description": "Raw material intake record logged by facility members.",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 120 },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string", "maxLength": 30 },
+        "notes": { "type": "string", "maxLength": 500 },
+        "loggedByUid": { "type": "string", "maxLength": 128 },
+        "loggedByName": { "type": "string", "maxLength": 100 },
+        "loggedByRole": { "type": "string", "maxLength": 60 },
+        "harvestedAt": { "type": "string" }
+      },
+      "required": ["productId", "productName", "quantity", "unit", "loggedByUid"]
+    },
+    "ProductionBatch": {
+      "title": "ProductionBatch",
+      "description": "A tracked processing batch with conditions and Gemini schedule.",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 120 },
+        "processingType": { "type": "string", "maxLength": 60 },
+        "totalQuantity": { "type": "number" },
+        "unit": { "type": "string", "maxLength": 30 },
+        "status": { "type": "string", "enum": ["harvested", "processing", "ready", "packaged"] },
+        "schedule": { "type": "string" },
+        "scheduleModelUsed": { "type": "string", "maxLength": 60 },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["productId", "productName", "processingType", "totalQuantity", "unit", "status"]
+    },
+    "BatchMessage": {
+      "title": "BatchMessage",
+      "description": "Multi-turn technical consultation message under a batch.",
+      "type": "object",
+      "properties": {
+        "role": { "type": "string", "enum": ["user", "model"] },
+        "content": { "type": "string", "maxLength": 4000 },
+        "senderUid": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 100 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["role", "content", "senderUid"]
+    },
+    "UserMembership": {
+      "title": "UserMembership",
+      "description": "User-bound index of joined facilities for direct, performant retrieval.",
+      "type": "object",
+      "properties": {
+        "farmId": { "type": "string", "maxLength": 128 },
+        "farmName": { "type": "string", "maxLength": 100 },
+        "permissionTier": { "type": "string", "enum": ["worker", "admin"] },
+        "roleLabel": { "type": "string", "maxLength": 60 },
+        "joinedAt": { "type": "string" }
+      },
+      "required": ["farmId", "farmName", "permissionTier", "roleLabel"]
+    }
+  },
+  "firestore": {
+    "/farmNames/{normalizedName}": {
+      "schema": "FarmNameReservation",
+      "description": "Unique display name reservations for facilities."
+    },
+    "/farms/{farmId}": {
+      "schema": "Farm",
+      "description": "Primary facility organization document."
+    },
+    "/farms/{farmId}/members/{memberUid}": {
+      "schema": "FarmMember",
+      "description": "Membership records governing ABAC within a facility."
+    },
+    "/farms/{farmId}/invites/{inviteeEmail}": {
+      "schema": "FarmInvite",
+      "description": "Email-gated invitations issued by facility admins."
+    },
+    "/farms/{farmId}/products/{productId}": {
+      "schema": "Product",
+      "description": "Product catalog for raw material intake and processing."
+    },
+    "/farms/{farmId}/harvestLogs/{logId}": {
+      "schema": "HarvestLog",
+      "description": "Raw material intake logs."
+    },
+    "/farms/{farmId}/batches/{batchId}": {
+      "schema": "ProductionBatch",
+      "description": "Tracked production batches and processing conditions."
+    },
+    "/farms/{farmId}/batches/{batchId}/messages/{messageId}": {
+      "schema": "BatchMessage",
+      "description": "Multi-turn Gemini AI conversation history for a batch."
+    },
+    "/users/{userId}/farms/{farmId}": {
+      "schema": "UserMembership",
+      "description": "User-scoped facility index for direct retrieval without collectionGroup latency."
+    }
+  }
+}
