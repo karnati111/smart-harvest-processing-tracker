@@ -6,6 +6,8 @@ import {
   ProductionBatch,
   FarmMember,
   BatchStatus,
+  isQualityInspector,
+  isProductionLead,
 } from '../types';
 import {
   createBatch,
@@ -559,8 +561,43 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
     }
   };
 
+  const isQC = isQualityInspector(member.roleLabel, member.permissionTier);
+  const isLead = isProductionLead(member.roleLabel, member.permissionTier);
+  const isAdmin = member.permissionTier === 'admin';
+  const canLogQc = isAdmin || isQC;
+
   return (
     <div className="space-y-6">
+      {/* Quality Inspector Oversight Banner */}
+      {isQC && (
+        <div id="banner-qc-inspector" className="p-3.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 text-xs flex items-center justify-between shadow-xs">
+          <div className="flex items-center space-x-2.5">
+            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+            <span>
+              <strong>Quality Inspector Oversight:</strong> You have full visibility into new and running production batches. Use <strong>Log QC Check</strong> to record certified temperature readings and condition verifications.
+            </span>
+          </div>
+          <span className="px-2 py-0.5 rounded bg-emerald-200 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 font-bold text-[10px] uppercase tracking-wider">
+            QC Authorized
+          </span>
+        </div>
+      )}
+
+      {/* Production Lead Oversight Banner */}
+      {isLead && !isAdmin && (
+        <div id="banner-prod-lead" className="p-3.5 rounded-xl bg-sky-50 dark:bg-sky-950/50 border border-sky-300 dark:border-sky-800 text-sky-900 dark:text-sky-200 text-xs flex items-center justify-between shadow-xs">
+          <div className="flex items-center space-x-2.5">
+            <Boxes className="w-4 h-4 text-sky-600 dark:text-sky-400 shrink-0" />
+            <span>
+              <strong>Production Lead View:</strong> Monitor running batch throughput, raw intake allocation, and processing timelines.
+            </span>
+          </div>
+          <span className="px-2 py-0.5 rounded bg-sky-200 dark:bg-sky-900 text-sky-800 dark:text-sky-200 font-bold text-[10px] uppercase tracking-wider">
+            Production Lead
+          </span>
+        </div>
+      )}
+
       {/* Notice Banner if zero raw material intake logs exist across the facility */}
       {harvestLogs.length === 0 && (
         <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
@@ -1198,14 +1235,27 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
                   </div>
 
                   {/* Actions Strip */}
-                  <div className="flex items-center space-x-2">
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                    {/* Log Quality Control Temperature & Condition Check Button (Admin & Quality Inspector) */}
+                    {canLogQc && (
+                      <button
+                        id={`btn-log-qc-action-${batch.id}`}
+                        onClick={() => setExpandedBatchId(batch.id)}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 shadow-sm"
+                        title="Log Quality Control Temperature & Condition Check"
+                      >
+                        <Thermometer className="w-3.5 h-3.5 text-white" />
+                        <span>Log QC Check</span>
+                      </button>
+                    )}
+
                     {/* Quality Control Temperature & Timeline View Button */}
                     <button
                       onClick={() => setExpandedBatchId(isExpanded ? null : batch.id)}
                       className="px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg text-xs font-medium transition flex items-center space-x-1"
                       title="Quality Control: View temperature maintained & timeline checking"
                     >
-                      <Thermometer className="w-3.5 h-3.5 text-rose-500" />
+                      <Activity className="w-3.5 h-3.5 text-rose-500" />
                       <span>QC Timeline</span>
                     </button>
 

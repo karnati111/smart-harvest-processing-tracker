@@ -202,3 +202,18 @@ export interface BatchChatMessage {
   senderName?: string;
   createdAt?: any;
 }
+
+export function isQualityInspector(roleLabel?: string, permissionTier?: PermissionTier): boolean {
+  const label = (roleLabel || '').toLowerCase();
+  return label.includes('quality') || label.includes('inspector') || label.includes('qc');
+}
+
+export function isProductionLead(roleLabel?: string, permissionTier?: PermissionTier): boolean {
+  const label = (roleLabel || '').toLowerCase();
+  return label.includes('production') || label.includes('lead');
+}
+
+export function canControlPacking(roleLabel?: string, permissionTier?: PermissionTier): boolean {
+  if (permissionTier === 'admin') return true;
+  return isQualityInspector(roleLabel, permissionTier);
+}

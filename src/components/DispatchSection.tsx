@@ -471,7 +471,34 @@ export const DispatchSection: React.FC<DispatchSectionProps> = ({
       )}
 
       {/* KPI Cards: Financials & Dispatch Performance */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        {/* Dispatched Count Tile */}
+        <div id="tile-dispatched-count" className="p-4 rounded-2xl bg-white dark:bg-slate-900 border-2 border-indigo-500/30 dark:border-indigo-500/40 shadow-sm relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-indigo-700 dark:text-indigo-300 flex items-center space-x-1.5">
+              <Truck className="w-4 h-4 text-indigo-500" />
+              <span>Dispatched Count</span>
+            </span>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+              Outbound
+            </span>
+          </div>
+          <div className="mt-2.5 flex items-baseline space-x-2">
+            <span className="text-3xl font-extrabold font-mono text-indigo-600 dark:text-indigo-400">
+              {metrics.totalOrders}
+            </span>
+            <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+              orders dispatched
+            </span>
+          </div>
+          <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-2">
+            <span>Total Units: <strong>{metrics.totalUnitsDispatched} units</strong></span>
+            <span className="font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
+              {metrics.totalKgDispatched} kg
+            </span>
+          </div>
+        </div>
+
         {/* Total Billed Revenue */}
         <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm">
           <div className="flex items-center justify-between">
@@ -480,17 +507,17 @@ export const DispatchSection: React.FC<DispatchSectionProps> = ({
               <span>Total Dispatched Value</span>
             </span>
             <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
-              {metrics.totalOrders} Orders
+              Gross Value
             </span>
           </div>
           <div className="mt-2.5 flex items-baseline space-x-2">
             <span className="text-2xl font-bold font-mono text-slate-900 dark:text-white">
               ₹{metrics.totalRevenue.toLocaleString()}
             </span>
-            <span className="text-xs text-slate-400">gross value</span>
+            <span className="text-xs text-slate-400">billed</span>
           </div>
           <div className="mt-2 text-[11px] text-slate-500 dark:text-slate-400 flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-2">
-            <span>Shipped: <strong>{metrics.totalUnitsDispatched} units</strong></span>
+            <span>Dispatched Count: <strong>{metrics.totalOrders}</strong></span>
             <span className="font-mono text-emerald-600 dark:text-emerald-400 font-semibold">
               {metrics.totalKgDispatched} kg
             </span>
