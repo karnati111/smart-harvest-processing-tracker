@@ -146,6 +146,22 @@ service cloud.firestore {
           allow update, delete: if isAdmin(farmId);
         }
       }
+
+      // Packaging Logs (Grade A / Grade B packet storage)
+      match /packagingLogs/{pkgId} {
+        allow read: if isMember(farmId);
+        allow create: if isMember(farmId) && request.resource.data.packedByUid == request.auth.uid;
+        allow update: if isMember(farmId);
+        allow delete: if isAdmin(farmId);
+      }
+
+      // Dispatching Orders & Records (Order source, destination, contact, payment status)
+      match /dispatches/{dispatchId} {
+        allow read: if isMember(farmId);
+        allow create: if isMember(farmId) && request.resource.data.dispatchedByUid == request.auth.uid;
+        allow update: if isMember(farmId);
+        allow delete: if isAdmin(farmId);
+      }
     }
   }
 }

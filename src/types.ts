@@ -98,6 +98,8 @@ export interface ProductionBatch {
   schedule: string;
   scheduleModelUsed?: string;
   progressReadings: ProgressReading[];
+  gradeAOutputQuantity?: number;
+  gradeBOutputQuantity?: number;
   driedOutputQuantity?: number;
   driedOutputUnit?: string;
   yieldPercentage?: number;
@@ -106,6 +108,90 @@ export interface ProductionBatch {
   readyAt?: any;
   createdAt?: any;
   updatedAt?: any;
+}
+
+export type ProduceGrade = 'Grade A' | 'Grade B';
+
+export interface PackagingRecord {
+  id: string;
+  productId: string;
+  productName: string;
+  batchId?: string;
+  grade: ProduceGrade;
+  packageSizeGrams: number;
+  unitsPacked: number;
+  totalGrams: number;
+  totalKg: number;
+  storageLocation?: string;
+  batchCode?: string;
+  notes?: string;
+  packedByUid: string;
+  packedByName: string;
+  packedByRole: string;
+  createdAt: any;
+  unitsDispatched?: number;
+  unitsRemaining?: number;
+}
+
+export type OrderSource =
+  | 'Amazon'
+  | 'Shopify'
+  | 'WhatsApp Direct'
+  | 'B2B Distributor'
+  | 'Retail Store'
+  | 'Website / Online'
+  | 'Phone / Direct Call'
+  | 'Exhibition / Farmers Market'
+  | 'Other';
+
+export type PaymentStatus =
+  | 'Prepaid'
+  | 'Amount Received'
+  | 'Pending / COD'
+  | 'Partially Paid';
+
+export interface DispatchItem {
+  packagingId?: string;
+  productId: string;
+  productName: string;
+  grade: ProduceGrade;
+  packageSizeGrams: number;
+  units: number;
+  totalGrams: number;
+  totalKg: number;
+  unitPrice?: number;
+  subtotal?: number;
+}
+
+export interface DispatchRecord {
+  id: string;
+  orderNumber: string;
+  orderSource: OrderSource;
+  orderDate: string;
+  dispatchDate: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail?: string;
+  deliveryAddress: string;
+  destinationCity: string;
+  destinationState?: string;
+  pincode?: string;
+  courierName?: string;
+  trackingNumber?: string;
+  items: DispatchItem[];
+  totalUnits: number;
+  totalWeightKg: number;
+  totalAmount: number;
+  amountReceived: number;
+  paymentStatus: PaymentStatus;
+  paymentMethod?: string;
+  paymentReference?: string;
+  status: 'Dispatched' | 'In Transit' | 'Delivered' | 'Returned';
+  notes?: string;
+  dispatchedByUid: string;
+  dispatchedByName: string;
+  dispatchedByRole: string;
+  createdAt: any;
 }
 
 export interface BatchChatMessage {

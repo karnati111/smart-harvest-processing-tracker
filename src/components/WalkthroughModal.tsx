@@ -12,6 +12,8 @@ import {
   Sparkles,
   Lock,
   Truck,
+  Package,
+  CreditCard,
 } from 'lucide-react';
 
 interface WalkthroughModalProps {
@@ -178,6 +180,65 @@ export const WalkthroughModal: React.FC<WalkthroughModalProps> = ({ isOpen, onCl
       ],
       expectedResult:
         'Instantaneous, responsive filtering of historical records by product and status.',
+    },
+    {
+      id: 'TC-11',
+      title: 'Grade Output at Mark Ready Stage (Grade A & Grade B Dried Weight)',
+      category: 'Production Batches & QC',
+      icon: Sparkles,
+      precondition: 'An active batch is in "In Chamber Processing" status.',
+      steps: [
+        'As an Admin, navigate to "Production Batches" and locate an active batch.',
+        'Click "Mark Ready for Distribution". The Grade Output & Dried Weight modal appears.',
+        'Enter Grade A Output dried weight (e.g. "12.5" kg) and Grade B Output dried weight (e.g. "3.5" kg).',
+        'Inspect the real-time calculated total dried output (16.0 kg) and yield recovery percentage.',
+        'Enter optional QC Notes (e.g. "Top trays crisp and vibrant green, slight sun-spotting on lower racks sorted to Grade B").',
+        'Click "Confirm & Transition to Ready".',
+        'Verify the batch card header displays: Grade A: 12.5 kg, Grade B: 3.5 kg with custom grade tags.',
+      ],
+      expectedResult:
+        'Batch status transitions to Ready with gradeAOutputQuantity and gradeBOutputQuantity safely persisted in Firestore.',
+    },
+    {
+      id: 'TC-12',
+      title: 'Packaging & Storage Module (Grade A & B Dried Stock & Gram-Sized Bags)',
+      category: 'Packaging & Storage',
+      icon: Package,
+      precondition: 'At least one batch marked Ready with Grade A and Grade B output.',
+      steps: [
+        'Click the "Packaging & Storage" tab in the main navigation bar.',
+        'Observe the top inventory overview cards: Total Available Dried Bulk Stock, Grade A Stock, Grade B Stock, and Finished Packaged Inventory.',
+        'Review the Dried Bulk Stock by Grade summary cards showing exact available weight (in kg and grams) broken down by product.',
+        'Click "+ Pack & Store Bags" or click "Pack This Grade" on a specific grade card.',
+        'Select the Product (e.g. Moringa Leaves), choose the Grade ("Grade A" or "Grade B"), and enter the package size in grams (e.g. "100" grams or "250" grams).',
+        'Enter the Number of Bags/Packages to pack (e.g. "50" bags).',
+        'Verify the modal calculates the required bulk dried weight (5.00 kg / 5,000 g) and validates against available bulk stock.',
+        'Select or enter the Storage Location / Bin ID (e.g. "Bin A-04 (Dehumidified Cold Room)") and click "Confirm & Store Packages".',
+        'Observe the new record in the "Finished Goods & Storage Inventory" table with remaining units and dispatch action.',
+      ],
+      expectedResult:
+        'Packaging record is stored under "farms/{farmId}/packagingLogs" with exact gram bag size, grade, barcode/SKU, and location metadata.',
+    },
+    {
+      id: 'TC-13',
+      title: 'Outbound Dispatching, Order Details & Payment Tracking',
+      category: 'Dispatch & Logistics',
+      icon: CreditCard,
+      precondition: 'Stored packaged goods available in Packaging module.',
+      steps: [
+        'Click "Dispatching" in the navigation bar (or click "Dispatch Bags" directly from the Packaging module).',
+        'Observe the Dispatch KPI metrics: Total Dispatched Orders, Total Gross Dispatch Value (₹), Amount Received / Collected (₹), and Pending / COD Receivable (₹).',
+        'Click "+ New Dispatch Order".',
+        'Enter Order Number (e.g. "ORD-2026-089") and select Where we got order / Source (e.g. "WhatsApp Direct", "B2B Distributor", "Shopify Store", "Amazon").',
+        'Fill Customer & Destination Details: Customer Name ("Aarav Patel"), Phone ("+91 98200 44551"), Delivery Address ("Flat 402, Lotus Tower, SG Highway"), Destination City ("Ahmedabad"), and Pincode ("380054").',
+        'In the "Dispatch Line Items" section, select the stored package item (e.g. "Moringa Leaves - Grade A [100g bags]"), specify units (e.g. "20" bags), and Unit Price (e.g. "₹180"). Verify total weight and subtotal calculate automatically.',
+        'In "Payment & Settlement", choose Payment Status ("Prepaid" or "Amount Received"), enter Amount Received (e.g. "₹3,600"), and Payment Method ("UPI / Google Pay").',
+        'Enter Courier Name ("Delhivery Express") and AWB Tracking Number ("DEL778899221").',
+        'Click "Confirm & Generate Dispatch".',
+        'Verify the order appears in the Dispatch Log table. Click "View Slip" to inspect the printable packing slip and delivery invoice.',
+      ],
+      expectedResult:
+        'Dispatch record is stored in Firestore with all contact, destination, line-item, courier, and payment details.',
     },
   ];
 

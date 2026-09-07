@@ -113,24 +113,16 @@ export const BatchReadyModal: React.FC<BatchReadyModalProps> = ({
                   {batch.productName}
                 </strong>
                 <span className="text-[10px] text-slate-500 block font-mono">
-                  ID: #{batch.id.slice(-6)}
-                </span>
-                <span className="text-[10px] text-slate-500 block capitalize">
-                  Process: {batch.processingType}
+                  ID: {batch.id.slice(0, 10)}...
                 </span>
               </div>
               <div>
-                <span className="text-slate-400 block text-[11px]">Confirmed Dried Output</span>
-                <strong className="text-emerald-700 dark:text-emerald-300 text-sm font-mono block">
-                  {batch.driedOutputQuantity !== undefined ? batch.driedOutputQuantity : batch.totalQuantity} {batch.driedOutputUnit || batch.unit || 'kg'}
+                <span className="text-slate-400 block text-[11px]">Dried Leaf Weight Added to Stock</span>
+                <strong className="text-emerald-700 dark:text-emerald-300 text-sm flex items-center space-x-1 font-mono">
+                  <span>{batch.driedOutputQuantity !== undefined ? batch.driedOutputQuantity : batch.totalQuantity} {batch.driedOutputUnit || batch.unit}</span>
                 </strong>
-                <span className="text-[10px] text-slate-500 block mt-0.5">
-                  Raw Intake: {batch.totalQuantity} {batch.unit}
-                  {batch.yieldPercentage !== undefined && (
-                    <strong className="text-emerald-600 dark:text-emerald-400 ml-1 font-semibold">
-                      ({batch.yieldPercentage}% yield)
-                    </strong>
-                  )}
+                <span className="text-[10px] text-slate-500 block">
+                  Raw Intake: {batch.totalQuantity} {batch.unit} {batch.yieldPercentage ? `(${batch.yieldPercentage}% Yield)` : ''}
                 </span>
               </div>
             </div>

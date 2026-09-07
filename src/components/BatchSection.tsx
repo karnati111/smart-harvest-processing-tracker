@@ -15,6 +15,8 @@ import {
 import { formatUnitDisplay, formatQuantityWithUnit } from '../lib/unitUtils';
 import { BatchChatModal } from './BatchChatModal';
 import { BatchReadyModal } from './BatchReadyModal';
+import { BatchReadyPromptModal } from './BatchReadyPromptModal';
+import { QualityControlTimeline } from './QualityControlTimeline';
 import ReactMarkdown from 'react-markdown';
 import {
   Boxes,
@@ -170,6 +172,10 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
     batch: ProductionBatch;
     slackNotified: boolean;
   } | null>(null);
+
+  // Original Dried Leaf Weight Stock Entry Modal State
+  const [promptBatch, setPromptBatch] = useState<ProductionBatch | null>(null);
+  const [isSubmittingPromptReady, setIsSubmittingPromptReady] = useState(false);
 
   // Progress Reading sub-state per batch
   const [newReadingNote, setNewReadingNote] = useState<{ [batchId: string]: string }>({});
@@ -405,54 +411,119 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
       return;
     }
 
+    // If transitioning to ready, open prompt modal to record Original Dried Leaf Weight into stock
+    if (targetStatus === 'ready') {
+      setPromptBatch(batch);
+      return;
+    }
+
     setIsUpdatingStatus((prev) => ({ ...prev, [batch.id]: true }));
     try {
-      // 1. Update Firestore status
+      // Update Firestore status
       await updateBatchStatus(farmId, batch.id, targetStatus);
-
-      // 2. If marking Ready, trigger server-side logistics notification (Slack webhook if configured)
-      let slackNotified = false;
-      if (targetStatus === 'ready') {
-        try {
-          const res = await fetch('/api/batches/notify-ready', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              batchId: batch.id,
-              productName: batch.productName,
-              quantity: batch.totalQuantity,
-              unit: batch.unit,
-              farmName: farmName || 'Facility',
-              readyAt: new Date().toISOString(),
-            }),
-          });
-          const resData = await res.json();
-          slackNotified = Boolean(resData?.notified);
-        } catch (notifyErr) {
-          console.warn('Non-blocking ready notification failed:', notifyErr);
-        }
-      }
 
       const updatedBatch: ProductionBatch = {
         ...batch,
         status: targetStatus,
-        readyAt: targetStatus === 'ready' ? new Date() : batch.readyAt,
+        readyAt: batch.readyAt,
+        updatedAt: new Date(),
       };
 
       onBatchUpdated(updatedBatch);
-
-      // 3. If transitioning to 'ready', open the popup showing status update and what to do next!
-      if (targetStatus === 'ready') {
-        setReadyModalData({
-          batch: updatedBatch,
-          slackNotified,
-        });
-      }
     } catch (err: any) {
       console.error('Error updating status:', err);
       alert('Failed to update batch status in database.');
     } finally {
       setIsUpdatingStatus((prev) => ({ ...prev, [batch.id]: false }));
+    }
+  };
+
+  // Confirm handler for Original Dried Leaf Weight Prompt
+  const handleConfirmReadyPrompt = async (payload: {
+    driedOutputQuantity: number;
+    driedOutputUnit: string;
+    gradeAOutputQuantity?: number;
+    gradeBOutputQuantity?: number;
+    notes?: string;
+  }) => {
+    if (!promptBatch) return;
+    setIsSubmittingPromptReady(true);
+    try {
+      const result = await updateBatchStatus(farmId, promptBatch.id, 'ready', user.uid, {
+        notes: payload.notes,
+        driedOutputQuantity: payload.driedOutputQuantity,
+        driedOutputUnit: payload.driedOutputUnit,
+        gradeAOutputQuantity: payload.gradeAOutputQuantity,
+        gradeBOutputQuantity: payload.gradeBOutputQuantity,
+      });
+
+      const updatedBatch: ProductionBatch = {
+        ...promptBatch,
+        status: 'ready',
+        readyAt: new Date(),
+        driedOutputQuantity: payload.driedOutputQuantity,
+        driedOutputUnit: payload.driedOutputUnit,
+        gradeAOutputQuantity: payload.gradeAOutputQuantity,
+        gradeBOutputQuantity: payload.gradeBOutputQuantity,
+        yieldPercentage: result.yieldPercentage,
+        statusNotes: payload.notes,
+        updatedAt: new Date(),
+      };
+
+      onBatchUpdated(updatedBatch);
+
+      setReadyModalData({
+        batch: updatedBatch,
+        slackNotified: Boolean(result.notifiedSlack),
+      });
+
+      setPromptBatch(null);
+    } catch (err: any) {
+      console.error('Error marking batch ready with dried leaf weight:', err);
+      alert('Failed to record dried leaf weight: ' + (err?.message || 'Server error'));
+    } finally {
+      setIsSubmittingPromptReady(false);
+    }
+  };
+
+  // QC Reading Handler (invoked by QualityControlTimeline)
+  const handleAddQcReading = async (
+    batch: ProductionBatch,
+    reading: { metric: string; note: string }
+  ) => {
+    setIsSubmittingReading((prev) => ({ ...prev, [batch.id]: true }));
+    try {
+      await addProgressReading(farmId, batch.id, batch.progressReadings || [], {
+        note: reading.note,
+        metric: reading.metric,
+        loggedByUid: user.uid,
+        loggedByName: user.displayName || user.email || 'QC Inspector',
+        loggedByRole:
+          member.roleLabel ||
+          (member.permissionTier === 'admin' ? 'Admin' : 'Quality Control Worker'),
+      });
+
+      const updatedReadings = [
+        ...(batch.progressReadings || []),
+        {
+          id: 'read_' + Date.now(),
+          timestamp: new Date().toISOString(),
+          note: reading.note,
+          metric: reading.metric,
+          loggedByUid: user.uid,
+          loggedByName: user.displayName || user.email || 'QC Inspector',
+          loggedByRole:
+            member.roleLabel ||
+            (member.permissionTier === 'admin' ? 'Admin' : 'Quality Control Worker'),
+        },
+      ];
+
+      onBatchUpdated({ ...batch, progressReadings: updatedReadings });
+    } catch (err: any) {
+      console.error('Error logging QC reading:', err);
+      alert('Failed to log QC reading: ' + (err?.message || 'Server error'));
+    } finally {
+      setIsSubmittingReading((prev) => ({ ...prev, [batch.id]: false }));
     }
   };
 
@@ -1100,7 +1171,27 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-1.5 text-xs text-slate-500 dark:text-slate-400">
                       <span>Batch #{batch.id.slice(-6)}</span>
                       <span>•</span>
-                      <span>Total: <strong className="text-slate-700 dark:text-slate-200">{batch.totalQuantity} {batch.unit}</strong></span>
+                      <span>Raw: <strong className="text-slate-700 dark:text-slate-200">{batch.totalQuantity} {batch.unit}</strong></span>
+                      {batch.driedOutputQuantity !== undefined && (
+                        <>
+                          <span>•</span>
+                          <span className="text-emerald-700 dark:text-emerald-300 font-semibold">
+                            Dried: {batch.driedOutputQuantity} {batch.driedOutputUnit || batch.unit}
+                            {batch.yieldPercentage ? ` (${batch.yieldPercentage}% yield)` : ''}
+                          </span>
+                        </>
+                      )}
+                      {(batch.gradeAOutputQuantity !== undefined || batch.gradeBOutputQuantity !== undefined) && (
+                        <>
+                          <span>•</span>
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300 font-semibold text-[11px]">
+                            Grade A: {batch.gradeAOutputQuantity || 0} {batch.driedOutputUnit || batch.unit}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 font-semibold text-[11px]">
+                            Grade B: {batch.gradeBOutputQuantity || 0} {batch.driedOutputUnit || batch.unit}
+                          </span>
+                        </>
+                      )}
                       <span>•</span>
                       <span className="capitalize">{batch.processingType}</span>
                     </div>
@@ -1108,6 +1199,16 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
 
                   {/* Actions Strip */}
                   <div className="flex items-center space-x-2">
+                    {/* Quality Control Temperature & Timeline View Button */}
+                    <button
+                      onClick={() => setExpandedBatchId(isExpanded ? null : batch.id)}
+                      className="px-2.5 py-1.5 bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 rounded-lg text-xs font-medium transition flex items-center space-x-1"
+                      title="Quality Control: View temperature maintained & timeline checking"
+                    >
+                      <Thermometer className="w-3.5 h-3.5 text-rose-500" />
+                      <span>QC Timeline</span>
+                    </button>
+
                     {/* "Ask AI" Multi-turn consultation button */}
                     <button
                       onClick={() => setActiveChatBatch(batch)}
@@ -1240,11 +1341,19 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
                       </div>
                     </div>
 
-                    {/* Progress Readings Section */}
-                    <div className="space-y-3">
+                    {/* Quality Control Temperature & Timeline Checking */}
+                    <QualityControlTimeline
+                      batch={batch}
+                      member={member}
+                      onAddReading={(reading) => handleAddQcReading(batch, reading)}
+                      isSubmitting={isSubmittingReading[batch.id]}
+                    />
+
+                    {/* General Progress Observation Logs Section */}
+                    <div className="space-y-3 pt-2">
                       <h4 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center space-x-1.5">
                         <Activity className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>Progress Readings &amp; Observations ({readingCount})</span>
+                        <span>Additional General Observations ({readingCount})</span>
                       </h4>
 
                       {/* Log New Reading Sub-form (Workers & Admins permitted) */}
@@ -1363,6 +1472,17 @@ export const BatchSection: React.FC<BatchSectionProps> = ({
               setShowCreateModal(true);
             }
           }}
+        />
+      )}
+
+      {/* Prompt Modal for Entering Original Dried Leaf Weight Into Stock when Marking Ready */}
+      {promptBatch && (
+        <BatchReadyPromptModal
+          batch={promptBatch}
+          isOpen={!!promptBatch}
+          onClose={() => setPromptBatch(null)}
+          onConfirm={handleConfirmReadyPrompt}
+          isSubmitting={isSubmittingPromptReady}
         />
       )}
     </div>

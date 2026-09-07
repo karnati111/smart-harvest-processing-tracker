@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { onAuthStateChanged, User } from 'firebase/auth';
-import { auth } from './lib/firebase';
+import { auth, PREVIEW_USER } from './lib/firebase';
 import {
   Farm,
   FarmMember,
@@ -25,6 +25,9 @@ import { IntakeSection } from './components/IntakeSection';
 import { BatchSection } from './components/BatchSection';
 import { TeamSection } from './components/TeamSection';
 import { HistorySection } from './components/HistorySection';
+import { PackagingSection } from './components/PackagingSection';
+import { DispatchSection } from './components/DispatchSection';
+import { PackagingRecord } from './types';
 
 import {
   LayoutDashboard,
@@ -36,6 +39,8 @@ import {
   Loader2,
   Building2,
   Plus,
+  Package,
+  Truck,
 } from 'lucide-react';
 
 export default function App() {
@@ -55,7 +60,7 @@ export default function App() {
   const [isDataRefreshing, setIsDataRefreshing] = useState(false);
 
   // Navigation & Modals
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'batches' | 'intake' | 'catalog' | 'team' | 'history'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'batches' | 'intake' | 'catalog' | 'packaging' | 'dispatch' | 'team' | 'history'>('dashboard');
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
   const [showWalkthroughModal, setShowWalkthroughModal] = useState(false);
 
@@ -63,6 +68,7 @@ export default function App() {
   const [preselectedProductForIntake, setPreselectedProductForIntake] = useState<ProductCatalogItem | null>(null);
   const [preselectedLogsForBatch, setPreselectedLogsForBatch] = useState<HarvestLog[]>([]);
   const [preselectedProductForBatch, setPreselectedProductForBatch] = useState<ProductCatalogItem | null>(null);
+  const [preselectedPackagingForDispatch, setPreselectedPackagingForDispatch] = useState<PackagingRecord | null>(null);
   const [focusedBatchId, setFocusedBatchId] = useState<string | null>(null);
 
   // Auto-route workers to their dedicated harvest-logging view
@@ -76,7 +82,20 @@ export default function App() {
 
   // 1. Listen for Auth State Changes
   useEffect(() => {
+    // Check if user previously launched preview mode
+    const isPreview = localStorage.getItem('smart_harvest_preview_session') === 'true';
+    if (isPreview) {
+      setCurrentUser(PREVIEW_USER as unknown as User);
+      setIsAuthLoading(false);
+      loadUserOrganizations(PREVIEW_USER.uid);
+      return;
+    }
+
     const unsubscribe = onAuthStateChanged(auth, (user) => {
+      // Don't override preview user if preview session is active
+      if (localStorage.getItem('smart_harvest_preview_session') === 'true') {
+        return;
+      }
       setCurrentUser(user);
       setIsAuthLoading(false);
       if (user) {
@@ -93,6 +112,20 @@ export default function App() {
 
     return () => unsubscribe();
   }, []);
+
+  const handleLoginSuccess = (user?: User) => {
+    const active = user || auth.currentUser || (PREVIEW_USER as unknown as User);
+    setCurrentUser(active);
+    setIsAuthLoading(false);
+    loadUserOrganizations(active.uid);
+  };
+
+  const handlePreviewLogin = () => {
+    localStorage.setItem('smart_harvest_preview_session', 'true');
+    setCurrentUser(PREVIEW_USER as unknown as User);
+    setIsAuthLoading(false);
+    loadUserOrganizations(PREVIEW_USER.uid);
+  };
 
   // 2. Load User's Organizations / Facilities
   const loadUserOrganizations = async (uid: string, selectFarmId?: string) => {
@@ -248,7 +281,7 @@ export default function App() {
 
   // Not signed in -> show Google login screen
   if (!currentUser) {
-    return <LoginScreen onLoginSuccess={() => {}} />;
+    return <LoginScreen onLoginSuccess={handleLoginSuccess} onPreviewLogin={handlePreviewLogin} />;
   }
 
   // Signed in but loading farm data
@@ -344,6 +377,30 @@ export default function App() {
                 </button>
 
                 <button
+                  onClick={() => setActiveTab('packaging')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'packaging'
+                      ? 'bg-purple-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <Package className="w-4 h-4" />
+                  <span>Packaging &amp; Storage</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('dispatch')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'dispatch'
+                      ? 'bg-sky-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <Truck className="w-4 h-4" />
+                  <span>Dispatching</span>
+                </button>
+
+                <button
                   onClick={() => setActiveTab('catalog')}
                   className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
                     activeTab === 'catalog'
@@ -391,6 +448,30 @@ export default function App() {
                 >
                   <ClipboardList className="w-4 h-4" />
                   <span>My Raw Material Intake ({harvestLogs.length})</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('packaging')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'packaging'
+                      ? 'bg-purple-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <Package className="w-4 h-4" />
+                  <span>Packaging &amp; Storage</span>
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('dispatch')}
+                  className={`flex items-center space-x-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition shrink-0 ${
+                    activeTab === 'dispatch'
+                      ? 'bg-sky-600 text-white shadow-md'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-850'
+                  }`}
+                >
+                  <Truck className="w-4 h-4" />
+                  <span>Dispatching</span>
                 </button>
 
                 <button
@@ -473,6 +554,33 @@ export default function App() {
                   onStartBatchWithLogs={handleStartBatchFromLogs}
                   preselectedProduct={preselectedProductForIntake}
                   onSelectBatch={handleSelectBatchFromIntake}
+                  onNavigateTab={setActiveTab}
+                />
+              )}
+
+              {activeTab === 'packaging' && (
+                <PackagingSection
+                  farmId={activeFarm.id}
+                  user={currentUser}
+                  member={activeMember!}
+                  products={products}
+                  batches={batches}
+                  onNavigateTab={setActiveTab}
+                  onSelectForDispatch={(record) => {
+                    setPreselectedPackagingForDispatch(record);
+                    setActiveTab('dispatch');
+                  }}
+                />
+              )}
+
+              {activeTab === 'dispatch' && (
+                <DispatchSection
+                  farmId={activeFarm.id}
+                  user={currentUser}
+                  member={activeMember!}
+                  products={products}
+                  preselectedPackaging={preselectedPackagingForDispatch}
+                  onClearPreselectedPackaging={() => setPreselectedPackagingForDispatch(null)}
                   onNavigateTab={setActiveTab}
                 />
               )}

@@ -123,6 +123,45 @@
         "joinedAt": { "type": "string" }
       },
       "required": ["farmId", "farmName", "permissionTier", "roleLabel"]
+    },
+    "PackagingRecord": {
+      "title": "PackagingRecord",
+      "description": "Finished goods packaged from dried inventory by grade and packet size.",
+      "type": "object",
+      "properties": {
+        "productId": { "type": "string", "maxLength": 128 },
+        "productName": { "type": "string", "maxLength": 120 },
+        "grade": { "type": "string", "enum": ["Grade A", "Grade B"] },
+        "packageSizeGrams": { "type": "number" },
+        "unitsPacked": { "type": "number" },
+        "totalGrams": { "type": "number" },
+        "totalKg": { "type": "number" },
+        "storageLocation": { "type": "string", "maxLength": 100 },
+        "packedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["productId", "productName", "grade", "packageSizeGrams", "unitsPacked", "packedByUid"]
+    },
+    "DispatchRecord": {
+      "title": "DispatchRecord",
+      "description": "Logistics dispatch order record with destination, customer contact, and payment status.",
+      "type": "object",
+      "properties": {
+        "orderNumber": { "type": "string", "maxLength": 50 },
+        "orderSource": { "type": "string", "maxLength": 50 },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "customerPhone": { "type": "string", "maxLength": 30 },
+        "deliveryAddress": { "type": "string", "maxLength": 300 },
+        "destinationCity": { "type": "string", "maxLength": 100 },
+        "totalUnits": { "type": "number" },
+        "totalWeightKg": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "amountReceived": { "type": "number" },
+        "paymentStatus": { "type": "string", "enum": ["Prepaid", "Amount Received", "Pending / COD", "Partially Paid"] },
+        "dispatchedByUid": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["orderNumber", "orderSource", "customerName", "deliveryAddress", "destinationCity", "paymentStatus", "dispatchedByUid"]
     }
   },
   "firestore": {
@@ -157,6 +196,14 @@
     "/farms/{farmId}/batches/{batchId}/messages/{messageId}": {
       "schema": "BatchMessage",
       "description": "Multi-turn Gemini AI conversation history for a batch."
+    },
+    "/farms/{farmId}/packagingLogs/{logId}": {
+      "schema": "PackagingRecord",
+      "description": "Packaging stock records by grade and size."
+    },
+    "/farms/{farmId}/dispatches/{dispatchId}": {
+      "schema": "DispatchRecord",
+      "description": "Outbound orders and dispatches with payment status and locations."
     },
     "/users/{userId}/farms/{farmId}": {
       "schema": "UserMembership",

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Farm, FarmMember, ProductCatalogItem, HarvestLog, ProductionBatch, BatchStatus } from '../types';
 import { formatUnitDisplay, formatQuantityWithUnit } from '../lib/unitUtils';
 import { updateBatchStatus, getAdminDashboardData, AdminDashboardData } from '../lib/farmService';
+import { ProductionProcurementCard } from './ProductionProcurementCard';
+import { BatchReadyPromptModal } from './BatchReadyPromptModal';
 import {
   LayoutDashboard,
   Boxes,
@@ -27,6 +29,7 @@ import {
   Search,
   Check,
   Package,
+  Truck,
 } from 'lucide-react';
 
 interface DashboardSectionProps {
@@ -35,7 +38,7 @@ interface DashboardSectionProps {
   products: ProductCatalogItem[];
   harvestLogs: HarvestLog[];
   batches: ProductionBatch[];
-  onNavigateTab: (tab: 'dashboard' | 'batches' | 'intake' | 'catalog' | 'history' | 'team') => void;
+  onNavigateTab: (tab: 'dashboard' | 'batches' | 'intake' | 'catalog' | 'packaging' | 'dispatch' | 'history' | 'team') => void;
   onQuickIntake: (product?: ProductCatalogItem) => void;
   onStartBatchWithProduct: (product: ProductCatalogItem) => void;
   onSelectBatch: (batchId: string) => void;
@@ -148,10 +151,20 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
     return harvestLogs.filter((l) => l.loggedByUid === member.uid);
   }, [harvestLogs, member.uid]);
 
+  // Modal state for entering Original Dried Leaf Weight when marking ready
+  const [readyPromptBatch, setReadyPromptBatch] = useState<ProductionBatch | null>(null);
+  const [isSubmittingReadyPrompt, setIsSubmittingReadyPrompt] = useState(false);
+
   // Admin: Handle status change (Ready or Packaged) with server-side enforcement
   const handleAdminStatusChange = async (batch: ProductionBatch, targetStatus: BatchStatus) => {
     if (!isAdmin) {
       setFeedback({ type: 'error', message: 'Unauthorized: Only Admins can change batch status to Ready or Packaged.' });
+      return;
+    }
+
+    // If marking as Ready, prompt for the Original Dried Leaf Weight input into stock
+    if (targetStatus === 'ready') {
+      setReadyPromptBatch(batch);
       return;
     }
 
@@ -164,7 +177,7 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
       const updatedBatch: ProductionBatch = {
         ...batch,
         status: targetStatus,
-        readyAt: targetStatus === 'ready' ? new Date() : batch.readyAt,
+        readyAt: batch.readyAt,
         updatedAt: new Date(),
       };
 
@@ -189,6 +202,58 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
       });
     } finally {
       setUpdatingBatchId(null);
+    }
+  };
+
+  // Submit handler when user completes the Original Dried Leaf Weight prompt
+  const handleConfirmReadyPrompt = async (payload: {
+    driedOutputQuantity: number;
+    driedOutputUnit: string;
+    notes?: string;
+  }) => {
+    if (!readyPromptBatch) return;
+    setIsSubmittingReadyPrompt(true);
+    setFeedback(null);
+
+    try {
+      const result = await updateBatchStatus(farm.id, readyPromptBatch.id, 'ready', member.uid, {
+        notes: payload.notes,
+        driedOutputQuantity: payload.driedOutputQuantity,
+        driedOutputUnit: payload.driedOutputUnit,
+      });
+
+      const updatedBatch: ProductionBatch = {
+        ...readyPromptBatch,
+        status: 'ready',
+        readyAt: new Date(),
+        driedOutputQuantity: payload.driedOutputQuantity,
+        driedOutputUnit: payload.driedOutputUnit,
+        yieldPercentage: result.yieldPercentage,
+        statusNotes: payload.notes,
+        updatedAt: new Date(),
+      };
+
+      if (onBatchUpdated) {
+        onBatchUpdated(updatedBatch);
+      }
+
+      setFeedback({
+        type: 'success',
+        message: `Batch #${readyPromptBatch.id.slice(-6)} marked READY! ${payload.driedOutputQuantity} ${payload.driedOutputUnit} original dried leaf weight entered into stock. ${
+          result.notifiedSlack ? 'Logistics notified via Slack.' : ''
+        }`,
+      });
+
+      setReadyPromptBatch(null);
+      fetchServerAdminData();
+    } catch (err: any) {
+      console.error('Failed to record dried leaf weight and mark ready:', err);
+      setFeedback({
+        type: 'error',
+        message: err?.message || 'Failed to record dried leaf weight into stock.',
+      });
+    } finally {
+      setIsSubmittingReadyPrompt(false);
     }
   };
 
@@ -278,6 +343,16 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
             <div className="text-[11px] text-slate-400 mt-1">Defined in facility catalog</div>
           </div>
         </div>
+
+        {/* Production Incharge & Plant Operations: Raw Materials, Dried Stock & Procurement Needs */}
+        <ProductionProcurementCard
+          products={products}
+          harvestLogs={harvestLogs}
+          batches={batches}
+          onQuickIntake={(prod) => onQuickIntake(prod)}
+          onNavigateTab={onNavigateTab}
+          userRoleLabel={member.roleLabel || 'Production Incharge'}
+        />
 
         {/* My Intake Records Table */}
         <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
@@ -380,11 +455,27 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
               className="flex items-center space-x-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold shadow transition"
             >
               <Boxes className="w-3.5 h-3.5" />
-              <span>Launch Batch</span>
+              <span>Batches</span>
+            </button>
+            <button
+              onClick={() => onNavigateTab('packaging')}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold shadow transition"
+              title="Packaging & Storage Inventory"
+            >
+              <Package className="w-3.5 h-3.5" />
+              <span>Packaging</span>
+            </button>
+            <button
+              onClick={() => onNavigateTab('dispatch')}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl text-xs font-semibold shadow transition"
+              title="Outbound Dispatch & Orders"
+            >
+              <Truck className="w-3.5 h-3.5" />
+              <span>Dispatching</span>
             </button>
             <button
               onClick={() => onNavigateTab('team')}
-              className="flex items-center space-x-1.5 px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-semibold backdrop-blur-sm transition"
+              className="flex items-center space-x-1.5 px-3 py-2 bg-white/10 hover:bg-white/20 text-white border border-white/20 rounded-xl text-xs font-semibold backdrop-blur-sm transition"
             >
               <Users className="w-3.5 h-3.5" />
               <span>Manage Team</span>
@@ -565,6 +656,16 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Production Incharge & Plant Operations: Raw Materials, Dried Stock & Procurement Needs */}
+      <ProductionProcurementCard
+        products={products}
+        harvestLogs={harvestLogs}
+        batches={batches}
+        onQuickIntake={(prod) => onQuickIntake(prod)}
+        onNavigateTab={onNavigateTab}
+        userRoleLabel={member.roleLabel || 'Plant Admin'}
+      />
 
       {/* Aggregate Ready Inventory Section */}
       <div className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
@@ -816,6 +917,17 @@ export const DashboardSection: React.FC<DashboardSectionProps> = ({
           </div>
         )}
       </div>
+
+      {/* Admin Batch Ready Dried Leaf Weight Entry Modal */}
+      {readyPromptBatch && (
+        <BatchReadyPromptModal
+          batch={readyPromptBatch}
+          isOpen={!!readyPromptBatch}
+          onClose={() => setReadyPromptBatch(null)}
+          onConfirm={handleConfirmReadyPrompt}
+          isSubmitting={isSubmittingReadyPrompt}
+        />
+      )}
     </div>
   );
 };
